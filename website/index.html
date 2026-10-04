@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Biny · 和你的项目一起工作</title>
+    <meta
+      name="description"
+      content="Biny 是本地优先、记忆优先的开发协作 Agent。连接自己的模型，在 macOS 桌面端或终端里处理项目任务。"
+    />
+    <meta name="keywords" content="Biny, AI Agent, 编码 Agent, 本地优先, macOS, CLI, TUI, MCP, Skill, 子代理" />
+    <meta name="theme-color" content="#f8f7f4" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://biny.dev/zh/" />
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="apple-touch-icon" href="/icon-1024.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Biny" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:title" content="Biny · 和你的项目一起工作" />
+    <meta
+      property="og:description"
+      content="本地优先的 AI Agent：桌面端与终端双入口，模型自选，执行可控，任务可恢复。"
+    />
+    <meta property="og:image" content="/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/og.png" />
+
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("biny-site-theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (error) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <main>
+        <h1>Biny</h1>
+        <p>Biny 是本地优先、记忆优先的开发协作 Agent，可在 macOS 桌面端或终端中处理项目任务。</p>
+        <p><a href="https://github.com/binyouo/Biny-Agent">GitHub 仓库</a> · <a href="https://github.com/binyouo/Biny-Agent/releases">下载</a></p>
+      </main>
+    </noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

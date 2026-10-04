@@ -1,0 +1,6 @@
+/* 网页只补原生窗口控制点；布局、字体和配色直接来自客户端样式入口。 */
+.demo-window-traffic { position: absolute; z-index: 80; top: 16px; left: 14px; display: flex; gap: 8px; pointer-events: none; }
+.demo-window-traffic i { display: block; width: 12px; height: 12px; border-radius: 50%; }
+.demo-window-traffic i:nth-child(1) { background: #ff5f57; }
+.demo-window-traffic i:nth-child(2) { background: #febc2e; }
+.demo-window-traffic i:nth-child(3) { background: #28c840; }

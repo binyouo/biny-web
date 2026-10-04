@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      /* 社交分享图模板。渲染命令见 website/README.md。 */
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        width: 1200px;
+        height: 630px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 30px;
+        padding: 0 88px;
+        background: #15171c;
+        color: #e9ebef;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+        overflow: hidden;
+      }
+      .row { position: relative; display: flex; align-items: center; gap: 22px; }
+      .row img { width: 84px; height: 84px; border-radius: 19px; }
+      .row span { font-size: 40px; font-weight: 650; letter-spacing: -0.02em; }
+      h1 { position: relative; font-size: 82px; font-weight: 600; letter-spacing: -0.035em; line-height: 1.1; }
+      p { position: relative; max-width: 940px; font-size: 28px; line-height: 1.55; color: #a6adb9; }
+      .foot {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 22px;
+        color: #737a87;
+      }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #7fc08a; }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <img src="../public/icon-1024.png" alt="" />
+      <span>Biny</span>
+    </div>
+    <h1>你的项目，你的 Agent。</h1>
+    <p>本地优先的 AI Agent，在 macOS 桌面端或终端里直接进入你的工作区，完成编码、研究和文件处理。</p>
+    <div class="foot">
+      <span class="dot"></span>
+      <span>模型自选 · 执行可控 · 会话留在本机 · MIT 开源</span>
+    </div>
+  </body>
+</html>
