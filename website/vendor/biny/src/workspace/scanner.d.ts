@@ -1,0 +1,1 @@
+export declare function scanWorkspaceFiles(workspaceRoot: string, ignore: string[], limit?: number, signal?: AbortSignal, includeFile?: (relativePath: string) => boolean, includeDirectory?: (relativePath: string) => boolean, onSkippedDirectory?: (relativePath: string) => void): Promise<string[]>;

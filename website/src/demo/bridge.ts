@@ -1,5 +1,5 @@
-export const CLIENT_WIDTH = 1311;
-export const CLIENT_HEIGHT = 847;
+export const CLIENT_WIDTH = 1353;
+export const CLIENT_HEIGHT = 828;
 export type DemoCommand = { source: "biny-website"; command: "start" | "replay" | "skip" | "state" };
 export type DemoState = { source: "biny-client-demo"; status: "idle" | "playing" | "waiting" | "done" };
 

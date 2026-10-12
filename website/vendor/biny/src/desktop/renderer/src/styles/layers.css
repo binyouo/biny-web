@@ -1,0 +1,32 @@
+/*
+ * 桌面端样式入口。
+ *
+ * Astryx 自己使用 cascade layers；旧样式必须显式落进 legacy 层，否则未分层的 reset 会
+ * 无视选择器权重覆盖组件库。Desktop 2.0 的样式放在最后一层，只处理产品布局和必要适配。
+ */
+@layer reset, astryx-base, astryx-theme, legacy, desktop, icon-controls;
+
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+@import "../styles.css" layer(legacy);
+@import "./theme.css" layer(desktop);
+@import "./desktop-v2.css" layer(desktop);
+@import "./biny.css" layer(desktop);
+@import "./chat.css" layer(desktop);
+@import "./inspector.css" layer(desktop);
+@import "./workspace-media.css" layer(desktop);
+@import "./markdown-content.css" layer(desktop);
+@import "./markdown-table.css" layer(desktop);
+@import "./markdown-diagram.css" layer(desktop);
+@import "./markdown-image.css" layer(desktop);
+@import "./markdown-infographic.css" layer(desktop);
+@import "./markdown-pattern.css" layer(desktop);
+@import "./providers.css" layer(desktop);
+@import "./settings.css" layer(desktop);
+@import "./activity-applications.css" layer(desktop);
+@import "./computer-use.css" layer(desktop);
+
+@import "./thread-brief.css" layer(desktop);
+@import "./appearance.css" layer(desktop);
+@import "./icon-buttons.css" layer(icon-controls);

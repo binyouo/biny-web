@@ -1,0 +1,27 @@
+/* 对话待办状态、项目建议提示和确认草稿的样式。 */
+.biny-brief-session-status { display: inline-flex; flex-shrink: 0; color: var(--biny-focus); }
+.biny-project-suggestion-banner { display: flex; align-items: center; gap: 10px; max-width: 720px; margin: 0 auto 8px; padding: 8px 12px; border: 1px solid var(--biny-border); border-radius: 12px; background: var(--biny-surface-elevated); font-size: 12px; }
+.biny-project-suggestion-banner > div { flex: 1; min-width: 0; }
+.biny-project-suggestion-banner strong, .biny-project-suggestion-banner small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.biny-project-suggestion-banner small { margin-top: 3px; color: var(--biny-text-secondary); font-size: 11px; }
+.biny-project-suggestion-banner > button { flex-shrink: 0; }
+.biny-project-suggestion-dialog { width: min(560px, calc(100vw - 40px)); max-height: 85vh; overflow-y: auto; padding: 24px; margin: auto; border: 1px solid var(--biny-border); border-radius: 14px; background: var(--biny-surface-elevated); color: var(--biny-text); font: inherit; }
+.biny-project-suggestion-dialog::backdrop { background: var(--biny-overlay); }
+.biny-project-suggestion-dialog header, .biny-project-suggestion-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.biny-project-suggestion-dialog h2 { font-size: 17px; margin: 0; }
+.biny-project-suggestion-dialog p, .biny-project-suggestion-dialog small, .biny-project-suggestion-dialog li { color: var(--biny-text-secondary); font-size: 12px; }
+.biny-project-suggestion-dialog fieldset { border: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.biny-project-suggestion-dialog label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.biny-project-suggestion-dialog input, .biny-project-suggestion-dialog textarea { border: 1px solid var(--biny-border); border-radius: 6px; background: var(--biny-surface); color: inherit; padding: 6px 8px; font: inherit; min-width: 0; }
+.biny-project-suggestion-dialog button, .biny-project-suggestion-banner button { border: 1px solid var(--biny-border); border-radius: 6px; background: var(--biny-surface); color: inherit; padding: 5px 8px; font-size: 12px; cursor: pointer; }
+.biny-project-suggestion-dialog button:disabled, .biny-project-suggestion-banner button:disabled { opacity: .5; cursor: default; }
+.biny-project-suggestion-dialog button:hover:not(:disabled), .biny-project-suggestion-banner button:hover:not(:disabled) { background: var(--biny-surface-hover); }
+.biny-suggestion-threads > div { display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--biny-border); padding: 8px; border-radius: 6px; margin-top: 5px; font-size: 12px; }
+.biny-suggestion-threads > div > span { flex: 1; min-width: 0; }
+.biny-suggestion-threads small { display: block; }
+.biny-suggestion-threads .is-dropped { opacity: .5; border-style: dashed; }
+.biny-suggestion-location, .biny-suggestion-feedback > div { display: flex; align-items: center; gap: 8px; }
+.biny-suggestion-location input, .biny-suggestion-feedback input { flex: 1; }
+.biny-suggestion-feedback { border: 1px dashed var(--biny-border); border-radius: 8px; padding: 12px; }
+.biny-project-suggestion-dialog footer { justify-content: flex-end; margin-top: 20px; }
+.biny-project-suggestion-dialog [role="alert"] { color: var(--biny-danger); }

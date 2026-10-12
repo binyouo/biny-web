@@ -1,0 +1,215 @@
+/* 中性表面、蓝色强调与独立状态色。首帧、主界面、快速对话和 portal 共用明暗配色。 */
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f5f5f5, #1a1a1a);
+  --sidebar: light-dark(#f5f5f5, #171717);
+  --surface: light-dark(#fafafa, #1f1f1f);
+  --surface-raised: light-dark(#ffffff, #242424);
+  --surface-soft: light-dark(#f0f0f0, #2b2b2b);
+  --surface-hover: light-dark(#e5e5e5, #333333);
+  --surface-selected: light-dark(#e9e9e9, #343434);
+  --accent: light-dark(#0f5fa8, #74b6fb);
+  --accent-hover: light-dark(#0c508e, #9acbff);
+  --accent-soft: light-dark(#eaf3fb, #253648);
+  --accent-foreground: light-dark(#ffffff, #171717);
+  --segment-track: light-dark(#f0f0f0, rgb(255 255 255 / 4.5%));
+  --segment-thumb: light-dark(#ffffff, rgb(255 255 255 / 10%));
+  --switch-thumb: light-dark(#ffffff, #ededed);
+  --text: light-dark(#171717, #ededed);
+  --text-secondary: light-dark(#525252, #b8b8b8);
+  --text-tertiary: light-dark(#616161, #a3a3a3);
+  --border: light-dark(#dedede, #3b3b3b);
+  --border-subtle: light-dark(#e8e8e8, #303030);
+  --border-strong: light-dark(#bdbdbd, #525252);
+  /* 语义状态色使用固定值，不随主题调色板变化。
+     亮色文本加深以保证淡底上的小字号可读；暗色文本、实心色与淡底保持独立。 */
+  --green: #00bc7d;
+  --green-text: light-dark(#007a55, #00d492);
+  --green-bg: rgb(0 188 125 / 10%);
+  --red: #fb2c36;
+  --red-text: light-dark(#c10007, #ff6467);
+  --red-bg: rgb(251 44 54 / 10%);
+  --session-delete-muted: light-dark(#64748b, #8b92a4);
+  --session-delete-danger: light-dark(#c45c5c, #b56b6f);
+  --session-delete-foreground: #ffffff;
+  /* 小号标题保留独立 token，默认与状态正文使用同一可读文本色。 */
+  --green-text-small: light-dark(#007a55, #00d492);
+  --red-text-small: light-dark(#c10007, #ff6467);
+  --amber: #fe9a00;
+  --amber-text: light-dark(#a65f00, #ffb900);
+  --amber-bg: rgb(254 154 0 / 10%);
+  --info: #2b7fff;
+  /* 子代理身份色与运行状态无关，保持明暗主题中的文字对比度。 */
+  --agent-teal: light-dark(#087e8b, #67d4df);
+  --agent-purple: light-dark(#7951b0, #bd9aee);
+  --agent-amber: light-dark(#956000, #efbd5b);
+  --agent-green: light-dark(#28784b, #7ecb9b);
+  --agent-rose: light-dark(#ab4572, #ed9abd);
+  --agent-blue: var(--accent);
+  --file-git: light-dark(#c84b2b, #f06a3c);
+  --file-javascript: light-dark(#926900, #e2c54f);
+  --file-purple: light-dark(#79579d, #b99bdd);
+  --file-typescript: light-dark(#2f67a7, #5da8e8);
+  --file-typescript-foreground: light-dark(#ffffff, #171717);
+  --file-javascript-foreground: light-dark(#ffffff, #332b05);
+  --syntax-keyword: light-dark(#7c3aed, #c4b5fd);
+  --syntax-string: light-dark(#1a7f45, #98d8a4);
+  --syntax-function: light-dark(#1d4ed8, #93c5fd);
+  --syntax-number: light-dark(#b45309, #f2b544);
+  --syntax-type: light-dark(#0e7490, #67e8f9);
+  --syntax-operator: light-dark(#a21caf, #f0abfc);
+  --code: light-dark(#f0f0f0, #1f1f1f);
+  --user-bubble: light-dark(#ededed, #2b2b2b);
+  --text-selection: light-dark(#cfe3f6, #294968);
+  --shadow: light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 24%));
+  --shadow-soft: light-dark(rgb(0 0 0 / 8%), rgb(0 0 0 / 20%));
+  --shadow-heavy: light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 42%));
+  --overlay: light-dark(rgb(0 0 0 / 20%), rgb(0 0 0 / 42%));
+  --dialog-overlay: rgb(0 0 0 / 30%);
+  --dialog-overlay-strong: rgb(0 0 0 / 40%);
+  --image-overlay: rgb(0 0 0 / 55%);
+  --image-preview-bg: rgb(0 0 0 / 95%);
+  --image-preview-toolbar: rgb(0 0 0 / 50%);
+  --image-preview-text: rgb(255 255 255 / 70%);
+  --image-preview-text-strong: #ffffff;
+  --image-preview-hover: rgb(255 255 255 / 10%);
+  --image-preview-focus: rgb(255 255 255 / 50%);
+  --highlight-glint: light-dark(rgb(255 255 255 / 35%), rgb(255 255 255 / 8%));
+  --overlay-hover: light-dark(rgb(0 0 0 / 8%), rgb(0 0 0 / 16%));
+  --overlay-pressed: light-dark(rgb(0 0 0 / 14%), rgb(0 0 0 / 24%));
+  --composer-surface: var(--surface-raised);
+  --blue: var(--accent);
+  --danger: var(--red-text);
+  --mark-ink: var(--accent-foreground);
+  --text-muted: var(--text-tertiary);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* 组件库在自身主题节点定义 token；在相同边界映射，保证弹层与主界面一致。 */
+:root,
+[data-astryx-theme],
+.desktop-root.biny-root {
+  --font-family-body: var(--font-sans);
+  --font-family-heading: var(--font-sans);
+  --font-family-code: var(--font-mono);
+  --biny-backplate: var(--surface);
+  --biny-sidebar-surface: var(--sidebar);
+  /* 左栏边界走弱化线：深色下按前景色低透明度提亮，不用实线色直接上墙。 */
+  --biny-sidebar-border: light-dark(color-mix(in srgb, var(--border) 45%, transparent), color-mix(in srgb, var(--text) 8%, transparent));
+  --biny-surface: var(--surface);
+  --biny-surface-elevated: var(--surface-raised);
+  --biny-surface-soft: var(--surface-soft);
+  --biny-surface-hover: var(--surface-hover);
+  --biny-surface-selected: var(--surface-selected);
+  --biny-border: var(--border);
+  --biny-border-real: var(--border);
+  --biny-border-subtle: var(--border-subtle);
+  --biny-border-strong: var(--border-strong);
+  --biny-text: var(--text);
+  --biny-text-secondary: var(--text-secondary);
+  --biny-text-tertiary: var(--text-tertiary);
+  --biny-placeholder: var(--text-tertiary);
+  --biny-focus: var(--accent);
+  --biny-accent: var(--accent);
+  --biny-accent-soft: var(--accent-soft);
+  --biny-control-active: var(--accent);
+  --biny-send-bg: var(--accent);
+  --biny-send-icon: var(--accent-foreground);
+  --biny-pill: var(--surface-soft);
+  --biny-chat-user-bg: var(--user-bubble);
+  --biny-chat-user-fg: var(--text);
+  --biny-selection-surface: var(--surface-selected);
+  --biny-selection-text: var(--accent-foreground);
+  --biny-selection-muted: var(--text-secondary);
+  --biny-danger: var(--red-text);
+  --biny-danger-bg: var(--red-bg);
+  --biny-success: var(--green-text);
+  --biny-success-bg: var(--green-bg);
+  --biny-warning: var(--amber-text);
+  --biny-warning-bg: var(--amber-bg);
+  --biny-code: var(--code);
+  --biny-shadow-color: var(--shadow);
+  --biny-shadow-soft: var(--shadow-soft);
+  --biny-shadow-heavy: var(--shadow-heavy);
+  --biny-shadow-sidebar: light-dark(var(--biny-shadow-color), rgb(0 0 0 / 55%));
+  --biny-shadow: 0 1px 2px var(--shadow);
+  --biny-overlay: var(--overlay);
+  --biny-overlay-hover: var(--overlay-hover);
+  --biny-overlay-pressed: var(--overlay-pressed);
+  --color-background-body: var(--bg);
+  --color-background-surface: var(--surface-raised);
+  --color-background-card: var(--surface-raised);
+  --color-background-popover: var(--surface-raised);
+  --color-background-muted: var(--surface);
+  --color-background-gray: var(--surface-hover);
+  --color-accent: var(--accent);
+  --color-accent-muted: var(--accent-soft);
+  --color-neutral: color-mix(in srgb, var(--border) 55%, transparent);
+  --color-overlay: var(--overlay);
+  --color-overlay-hover: var(--overlay-hover);
+  --color-overlay-pressed: var(--overlay-pressed);
+  --color-text-primary: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-disabled: var(--text-tertiary);
+  --color-text-accent: var(--accent);
+  --color-text-red: var(--red-text);
+  --color-text-yellow: var(--amber-text);
+  --color-text-green: var(--green-text);
+  --color-on-accent: var(--accent-foreground);
+  --color-on-success: var(--accent-foreground);
+  --color-on-error: var(--accent-foreground);
+  --color-on-warning: var(--accent-foreground);
+  --color-icon-accent: var(--accent);
+  --color-icon-primary: var(--text);
+  --color-icon-secondary: var(--text-secondary);
+  --color-icon-disabled: var(--text-tertiary);
+  --color-success: var(--green-text);
+  --color-success-muted: var(--green-bg);
+  --color-error: var(--red-text);
+  --color-error-muted: var(--red-bg);
+  --color-warning: var(--amber-text);
+  --color-warning-muted: var(--amber-bg);
+  --color-border: var(--border);
+  --color-border-emphasized: var(--border-strong);
+  --color-shadow: var(--shadow);
+  --color-background-red: var(--red-bg);
+  --color-border-red: var(--red);
+  --color-icon-red: var(--red-text);
+  --color-background-yellow: var(--amber-bg);
+  --color-border-yellow: var(--amber);
+  --color-icon-yellow: var(--amber-text);
+  --color-background-green: var(--green-bg);
+  --color-border-green: var(--green);
+  --color-icon-green: var(--green-text);
+  --color-background-blue: var(--accent-soft);
+  --color-border-blue: var(--accent);
+  --color-icon-blue: var(--accent);
+  --color-text-blue: var(--accent);
+  --color-border-gray: var(--border);
+  --color-icon-gray: var(--text-secondary);
+  --color-text-gray: var(--text-secondary);
+  --color-background-orange: var(--amber-bg);
+  --color-border-orange: var(--amber);
+  --color-icon-orange: var(--amber-text);
+  --color-text-orange: var(--amber-text);
+  --color-skeleton: var(--surface-hover);
+  --color-syntax-keyword: var(--syntax-keyword);
+  --color-syntax-string: var(--syntax-string);
+  --color-syntax-comment: var(--text-tertiary);
+  --color-syntax-function: var(--syntax-function);
+  --color-syntax-number: var(--syntax-number);
+  --color-syntax-operator: var(--syntax-operator);
+  --color-syntax-variable: var(--text);
+  --color-syntax-punctuation: var(--text-secondary);
+  --color-syntax-background: var(--code);
+  --shadow-low: var(--biny-shadow);
+  --shadow-med: 0 8px 24px var(--shadow-heavy);
+  --shadow-high: 0 16px 40px var(--shadow-heavy);
+}
+
+::selection {
+  color: var(--text);
+  background: var(--text-selection);
+}

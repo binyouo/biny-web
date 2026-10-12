@@ -132,74 +132,16 @@ const scenarios: DemoScenario[] = [
   },
   {
     id: "memory",
-    title: "它记得「老规矩」",
+    title: "按老规矩整理周报",
     permissionMode: "自动允许安全修改",
     usage: "预置示例 · 已完成",
     steps: [
-      { kind: "user", viaComposer: true, text: "老规矩，把这周的活跃用户数据出张图。" },
-      {
-        kind: "tool",
-        name: "召回记忆",
-        summary: "\"老规矩\" 周报 图表",
-        durationLabel: "0.2 秒",
-        payload: [
-          "命中 2 条记忆：",
-          "",
-          "1. 「老规矩」= 折线图，纵轴从 0 开始，配色跟终端主题。",
-          "2. 数据来源标注在图表下方，字号小一档。"
-        ]
-      },
-      {
-        kind: "assistant",
-        text: "记得：折线图、纵轴从 0、来源小字标注。这次照办。"
-      },
-      {
-        kind: "tool",
-        name: "加载技能",
-        summary: "skills/weekly-chart/SKILL.md",
-        durationLabel: "0.1 秒",
-        payload: [
-          "# weekly-chart",
-          "",
-          "1. 拉取接口数据存成 JSON",
-          "2. 按天聚合并渲染折线图",
-          "3. 导出 PNG 到 docs/charts/",
-          "",
-          "技能正文按需加载，初始只提供名称和说明。"
-        ]
-      },
-      {
-        kind: "tool",
-        name: "Bash",
-        summary: "python3 scripts/fetch_active.py --week current",
-        durationLabel: "2.4 秒",
-        command: {
-          text: "python3 scripts/fetch_active.py --week current",
-          output: ["已拉取 7 天数据：1,284 条记录", "按天聚合完成：7 个数据点"]
-        }
-      },
-      {
-        kind: "tool",
-        name: "写入文件",
-        summary: "docs/charts/active-w36.png",
-        durationLabel: "0.9 秒",
-        filePath: "docs/charts/active-w36.png"
-      },
-      {
-        kind: "assistant",
-        text: "出好了：docs/charts/active-w36.png。折线图、纵轴从 0、来源标注都在老位置。峰值在周四，2,913 人，比上周多 11%。"
-      },
-      {
-        kind: "tool",
-        name: "保存记忆",
-        summary: "周报图表偏好 · 更新",
-        durationLabel: "0.1 秒",
-        payload: ["已更新记忆：「老规矩」追加一条——", "报告里附上环比变化百分比。"]
-      },
-      {
-        kind: "assistant",
-        text: "顺手把「附上环比」也记进了偏好，下次你说「老规矩」连这句都不用提。记忆保存在本机，可以查看和管理。"
-      }
+      { kind: "user", viaComposer: true, text: "按老规矩，帮我整理这周的项目进展。" },
+      { kind: "tool", name: "召回记忆", summary: "周报格式 · 项目约定", payload: ["中文，先结论后依据。", "按主题归类，五条以内。", "保留下一步，放到项目的 docs/weekly/ 目录。"] },
+      { kind: "assistant", text: "记得。**中文、先写结论、五条以内**，再把下一步列清楚。我先看看这周的变化。" },
+      { kind: "tool", name: "Bash", summary: "git log --since='7 days ago' --oneline", command: { text: "git log --since='7 days ago' --oneline", output: ["a31f9c2 添加订单搜索", "9e55b0e 调整报表导出格式", "41a2f77 补充接口错误提示", "7d0c441 修复窄屏列表布局"] } },
+      { kind: "assistant", text: "本周完成了搜索、导出和两项体验修复。\n\n| 本周进展 | 下一步 |\n| --- | --- |\n| 订单搜索支持按编号查找 | 补充组合筛选 |\n| 报表导出格式已调整 | 核对周会使用的字段 |\n| 错误提示与窄屏布局已修复 | 检查移动端使用体验 |\n\n周报已整理到 `docs/weekly/本周进展.md`。下次继续时，可以从这三项待办开始。" },
+      { kind: "tool", name: "写入文件", summary: "docs/weekly/本周进展.md", filePath: "docs/weekly/本周进展.md" }
     ]
   },
   {
@@ -379,178 +321,26 @@ export const zh = {
   meta: {
     localeLabel: "简体中文"
   },
-  hero: {
-    eyebrow: "本地优先 · 记忆优先",
-    title: "与你一起工作的\n本地 AI Agent",
-    subtitle: "Biny 把对话、记忆和工具带进你的项目。在桌面或终端里继续工作，连接你选择的模型，按你的权限执行任务。",
-    primaryCta: "获取 Biny",
-    secondaryCta: "开始使用",
-    platformNote: "macOS Desktop · TUI / CLI · 本地运行"
-  },
-  features: {
-    eyebrow: "为日常工作准备",
-    title: "对话之外，继续把事情做完",
-    subtitle: "从项目背景到每次工具操作，让上下文和工作过程都有迹可循。",
-    illustrationNote: "功能示意 · 内容为预置示例",
-    items: [
-      {
-        visual: "memory" as const,
-        label: "记忆与上下文",
-        title: "不必每次\n都从头说起",
-        body: "项目背景、已有偏好和会话历史，可以成为后续任务的上下文。会话与记忆保存在本机，你可以查看、检索和管理，让协作从上一次的工作继续。",
-        link: "了解记忆如何工作",
-        doc: "memory"
-      },
-      {
-        visual: "permission" as const,
-        label: "工具与权限",
-        title: "看见过程，\n掌握操作范围",
-        body: "读取文件、搜索内容、修改代码和执行命令，都能在会话里查看过程与结果。根据项目需要选择权限模式，在需要审批时确认或拒绝操作。",
-        link: "了解工具与权限",
-        doc: "tools"
-      },
-      {
-        visual: "terminal" as const,
-        label: "Desktop · TUI · CLI",
-        title: "在你习惯的\n界面里工作",
-        body: "桌面端把项目、会话与设置放在一个窗口；终端保留键盘驱动的工作方式。交互式入口共用本机运行时，也可以通过 CLI 执行一次性任务。",
-        link: "了解会话与工作区",
-        doc: "sessions"
-      },
-      {
-        visual: "extensions" as const,
-        label: "MCP · Skills · Plugins",
-        title: "把自己的工具，\n接进工作流",
-        body: "连接 MCP 服务，按需加载 Skills，或通过本地插件补充能力。把项目里的方法和外部工具交给 Biny 使用，扩展操作仍受工作区与权限策略约束。",
-        link: "了解扩展能力",
-        doc: "extensions"
-      }
+  home: {
+    title: "让每一次对话，\n都接得上一次。",
+    intro: "一个在你电脑上工作的 AI Agent。记住项目背景，使用你的工具，陪你把手头的事情做完。",
+    capabilities: [
+      { icon: "brain" as const, title: "记住，再出发", description: "偏好、项目约定和会话上下文留在本机，需要时可以查阅和管理。", example: "“按我习惯的格式，整理这周的工作。”", doc: "memory", link: "了解本地记忆" },
+      { icon: "folder" as const, title: "围绕项目做事", description: "读文件、理解代码、整理资料。把对话和项目放在一起，让任务有完整的上下文。", example: "“先看项目说明，再帮我找到入口。”", doc: "sessions", link: "了解项目与会话" },
+      { icon: "shield" as const, title: "每一步，都看得见", description: "查看工具过程和执行结果，选择操作权限；需要确认时，由你决定是否继续。", example: "“把改动列出来，确认后再执行。”", doc: "tools", link: "了解工具与权限" }
     ],
-    illustrations: {
-      memory: {
-        title: "本地记忆",
-        scope: "跨会话使用",
-        notes: [
-          { title: "周报偏好", body: "中文，先写结论，再补充依据。" },
-          { title: "项目约定", body: "修改前阅读说明，保留已有工作。" },
-          { title: "图表格式", body: "纵轴从 0 开始，附上数据来源。" }
-        ],
-        recalled: "召回相关上下文",
-        message: "按之前的约定，先把本周变化整理成中文要点。"
-      },
-      permission: {
-        title: "修改文件",
-        diffLabel: "示例代码变更",
-        request: "确认这次修改",
-        description: "查看目标文件与变更，再决定是否允许。",
-        deny: "拒绝",
-        allow: "允许一次"
-      },
-      terminal: {
-        title: "Terminal",
-        workspace: "sample-project",
-        prompt: "帮我了解这个项目的入口。",
-        answer: "项目说明已读完。接下来查看入口与目录结构。",
-        permission: "只读",
-        status: "等待输入"
-      },
-      extensions: {
-        workspace: "你的工作区",
-        items: [
-          { name: "MCP", icon: "plug" as const, description: "连接外部工具与资源" },
-          { name: "Skills", icon: "file" as const, description: "按需加载项目里的工作方法" },
-          { name: "Plugins", icon: "layers" as const, description: "组合本地工具与能力" }
-        ],
-        note: "遵循工作区与权限策略"
-      }
-    }
-  },
-  providers: {
-    eyebrow: "模型由你选择",
-    title: "连接你熟悉的模型服务",
-    subtitle: "使用云端 Provider、兼容接口或本地模型，按任务选择合适的模型与配置。",
-    listLabel: "支持的模型服务与接口",
-    items: [
-      { name: "OpenAI", mark: "O" },
-      { name: "Anthropic", mark: "A" },
-      { name: "Gemini", mark: "G" },
-      { name: "DeepSeek", mark: "D" },
-      { name: "Kimi", mark: "K" },
-      { name: "Qwen", mark: "Q" },
-      { name: "Ollama", mark: "L" },
-      { name: "兼容 API", mark: "{}" }
-    ],
-    link: "查看模型配置指南"
+    providers: ["OpenAI", "Anthropic", "Gemini", "DeepSeek", "Kimi", "Qwen", "Ollama", "兼容 API"]
   },
   demo: {
-    eyebrow: "交互演示",
     title: "从一句话，到每一步",
-    subtitle: "切换示例会话，展开工具结果，试着确认或拒绝一次操作。",
-    hint: "网页演示使用预置场景，不连接模型，也不读取或修改你的文件。",
-    window: {
-      projectName: "sample-project"
-    },
+    hint: "对话与右栏均为预置示例，不连接模型，不执行命令或修改你的文件。",
     controls: {
       replay: "重播",
-      skip: "跳到结尾",
+      skip: "快进",
       playing: "播放中",
       done: "已结束",
       waiting: "等待你的确认"
-    },
-    permission: {
-      inputPlaceholder: "输入 yes",
-      deny: "拒绝",
-      always: "始终允许同类操作",
-      once: "允许一次",
-      approved: "已允许",
-      denied: "已拒绝"
-    },
-    sections: {
-      result: "结果",
-      command: "命令",
-      output: "输出",
-      change: "变更",
-      duration: "时长"
     }
-  },
-  faq: {
-    eyebrow: "常见问题",
-    title: "开始之前，\n你可能想知道",
-    subtitle: "安装、模型、数据与权限，先从这些问题了解 Biny。",
-    docsLink: "查看完整文档",
-    items: [
-      {
-        q: "Biny 是怎样工作的？",
-        a: "Biny 是本地优先、记忆优先的开发协作 Agent。它在你的项目里结合上下文与模型完成任务，提供 macOS 桌面端、TUI 和 CLI；会话、工具过程与记忆保存在本机。"
-      },
-      {
-        q: "我的数据会发到哪里？",
-        a: "会话与记忆在本机保存。模型请求会直接发送到你配置的 Provider，任务相关的消息、文件内容与工具结果可能成为请求的一部分。云端服务的数据处理规则由对应 Provider 决定；使用本地模型时，也需要确认其他扩展工具的网络行为。"
-      },
-      {
-        q: "需要使用哪一家模型？",
-        a: "可以自行选择。Biny 支持多家模型 Provider、OpenAI-compatible 等兼容接口，以及 Ollama 等本地模型。可用能力取决于模型、服务商与配置，具体接入方式见模型文档。"
-      },
-      {
-        q: "怎样控制文件修改和命令执行？",
-        a: "工具操作经过权限策略。你可以选择只读、每次询问、自动允许安全修改或完全访问；完全访问会跳过常规审批，明确禁止的路径仍会被拦截。需要审批时，可以查看目标与操作内容，再决定是否允许。"
-      },
-      {
-        q: "Biny 是免费的吗？",
-        a: "Biny 的源码可以在项目仓库查看。使用云端模型时，费用由你配置的服务商决定；本地模型的运行也需要相应的设备资源。"
-      },
-      {
-        q: "现在可以在哪些平台使用？",
-        a: "桌面端面向 macOS，CLI 与 TUI 通过 Node.js 运行，当前开发与验证主要在 macOS 上进行。安装方式与可下载产物以安装页为准，也可以从源码启动。"
-      }
-    ]
-  },
-  cta: {
-    title: "从你的下一个项目开始",
-    subtitle: "打开工作区，连接模型，把第一件事交给 Biny。",
-    primary: "获取 Biny",
-    secondary: "阅读快速开始",
-    note: "本地运行 · 模型自选 · 公开源码"
   },
   common: {
     backHome: "返回首页",

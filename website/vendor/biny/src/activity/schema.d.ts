@@ -1,0 +1,6 @@
+import type { DatabaseSync } from "node:sqlite";
+export declare function ensureActivityTables(db: DatabaseSync): void;
+/** 将旧列式 payload 一次性转换成按事件类型定义的数据，不再保留 AX 内容。 */
+export declare function activityEventData(kind: string, input: Record<string, unknown>): Record<string, unknown>;
+/** 领域读取按事件类型投影；没有旧字段双写。 */
+export declare const activityEventProjection = "(SELECT id, session_id, timestamp, kind, app_name, data,\n strftime('%Y-%m-%dT%H:%M:%fZ', timestamp / 1000.0, 'unixepoch') AS occurred_at,\n 'event' AS source, kind AS event_type, app_name AS application,\n json_extract(data, '$.title') AS window_title,\n COALESCE(json_extract(data, '$.text'),json_extract(data, '$.title'),kind) AS summary,\n NULL AS ocr_text,\n json_extract(data, '$.url') AS url,\n json_extract(data, '$.reason') AS fallback_reason,\n json_extract(data, '$.button') AS mouse_button,\n json_extract(data, '$.lastKeyCode') AS key_code,\n json_extract(data, '$.modifiers') AS key_modifiers,\n json_extract(data, '$.x') AS mouse_x,\n json_extract(data, '$.y') AS mouse_y,\n COALESCE(json_extract(data, '$.count'),0) AS input_event_count,\n strftime('%Y-%m-%dT%H:%M:%fZ', json_extract(data, '$.firstTimestamp') / 1000.0, 'unixepoch') AS input_event_first_at\n FROM activity_events)";

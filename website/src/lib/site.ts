@@ -4,7 +4,7 @@ export const SITE = {
   name: "Biny",
   repo: repository,
   releases: `${repository}/releases`,
-  releasesApi: "https://api.github.com/repos/binyouo/Biny-Agent/releases/latest",
+  releasesApi: "https://api.github.com/repos/binyouo/Biny-Agent/releases?per_page=10",
   issues: `${repository}/issues`,
   npm: "@biny012/biny",
   npmPage: "https://www.npmjs.com/package/@biny012/biny",

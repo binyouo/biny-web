@@ -1,6 +1,7 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "./";
 
-/* 中性底色负责层次，蓝色仅强调链接、焦点与关键操作。 */
+/* 页面底色、文字和操作强调色由浅深两组令牌统一提供。 */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
@@ -8,73 +9,73 @@
   --site-font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --site-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --nav-height: 72px;
+  --nav-height: 76px;
   --site-font-display: var(--site-font-sans);
   --site-radius: 10px;
   --site-shadow: 0 2px 6px -4px var(--shadow-color), 0 18px 36px -28px var(--shadow-color);
 
-  --canvas: #f8f7f4;
-  --canvas-alt: #eeece7;
-  --sidebar: #f0efeb;
-  --surface: #fffefa;
-  --raised: #ffffff;
-  --soft: #e7e5de;
+  --canvas: #f5f4f0;
+  --canvas-alt: #eae9e4;
+  --sidebar: #eeede8;
+  --surface: #f0efeb;
+  --raised: #f5f4f0;
+  --soft: #e1e0da;
   --hover: rgba(43, 42, 39, 0.055);
-  --selected: #e7e5de;
-  --user-bubble: #eceae4;
-  --composer-surface: #faf9f6;
-  --ink: #292a27;
-  --ink-2: #575a53;
-  --ink-3: #64685f;
-  --line: #dcddd5;
-  --line-strong: #bfc3b9;
-  --accent: #3f617d;
-  --accent-bg: #e8eef2;
-  --accent-ink: #fffefa;
-  --action-bg: #292a27;
-  --action-hover: #454741;
-  --action-ink: #fffefa;
+  --selected: #e1e0da;
+  --user-bubble: #e6e5df;
+  --composer-surface: #f0efeb;
+  --ink: #262625;
+  --ink-2: #5b5b57;
+  --ink-3: #6d6d67;
+  --line: #dfded7;
+  --line-strong: #c6c5be;
+  --accent: #3f647f;
+  --accent-bg: #e5eaed;
+  --accent-ink: #f0efeb;
+  --action-bg: #262625;
+  --action-hover: #40403d;
+  --action-ink: #f0efeb;
   --green: #466b46;
   --green-bg: #e6ece0;
   --red: #a1493f;
   --red-bg: #f3e6e1;
   --amber: #816020;
   --amber-bg: #f1e9d8;
-  --code: #efeee9;
+  --code: #ecebe6;
   --shadow-color: rgba(36, 36, 31, 0.13);
   --overlay: rgba(30, 31, 27, 0.28);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #1c1d1b;
-  --canvas-alt: #232420;
-  --sidebar: #222320;
-  --surface: #272925;
-  --raised: #32342e;
-  --soft: #30322c;
+  --canvas: #1e1e1e;
+  --canvas-alt: #252525;
+  --sidebar: #1a1a1a;
+  --surface: #252525;
+  --raised: #282828;
+  --soft: #282828;
   --hover: rgba(238, 238, 231, 0.07);
-  --selected: #363930;
-  --user-bubble: #30332c;
-  --composer-surface: #282a25;
-  --ink: #eeeee7;
-  --ink-2: #c1c4b9;
-  --ink-3: #a0a599;
-  --line: #40443a;
-  --line-strong: #5a6052;
-  --accent: #a1bed2;
-  --accent-bg: #2b3942;
-  --accent-ink: #1c262d;
-  --action-bg: #eeeee7;
-  --action-hover: #d5d8cd;
-  --action-ink: #292a27;
+  --selected: #3a3a3a;
+  --user-bubble: #313131;
+  --composer-surface: #252525;
+  --ink: #e8e8e5;
+  --ink-2: #c2c2bc;
+  --ink-3: #a2a29b;
+  --line: #343434;
+  --line-strong: #50504d;
+  --accent: #9cdcfe;
+  --accent-bg: #283640;
+  --accent-ink: #1e1e1e;
+  --action-bg: #e8e8e5;
+  --action-hover: #f5f5f2;
+  --action-ink: #252525;
   --green: #a6c39b;
   --green-bg: #303c2b;
   --red: #e4aaa0;
   --red-bg: #422f29;
   --amber: #dfc18a;
   --amber-bg: #3c3425;
-  --code: #222420;
+  --code: #252525;
   --shadow-color: rgba(0, 0, 0, 0.4);
   --overlay: rgba(10, 11, 9, 0.55);
 }
@@ -269,14 +270,14 @@
   background: color-mix(in srgb, var(--canvas) 97%, transparent);
   backdrop-filter: blur(12px);
 }
-.site-nav { display: flex; height: var(--nav-height); align-items: center; gap: 40px; }
+.site-nav { max-width: 1120px; display: flex; height: var(--nav-height); align-items: center; gap: 40px; }
 .site-brand { display: inline-flex; align-items: center; gap: 11px; color: var(--ink); text-decoration: none; }
-.site-brand > span { font-family: var(--site-font-display); font-size: 23px; font-weight: 650; letter-spacing: -.045em; }
-.site-nav-links { display: flex; align-items: center; gap: 30px; margin-left: auto; }
+.site-brand > span { font-family: var(--site-font-display); font-size: 22px; font-weight: 550; letter-spacing: -.04em; }
+.site-nav-links { display: flex; align-items: center; gap: 30px; }
 .site-nav-link { font-size: 14px; font-weight: 500; color: var(--ink-2); transition: color .16s; }
 .site-nav-link:hover, .site-nav-link[data-active="true"] { color: var(--ink); }
 .site-nav-link[data-active="true"] { text-decoration: underline; text-underline-offset: 7px; text-decoration-color: var(--line-strong); }
-.site-nav-actions { display: flex; align-items: center; gap: 10px; }
+.site-nav-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .site-icon-button { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
 .site-icon-button:hover { background: var(--hover); color: var(--ink); }
 .site-button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 45px; padding: 11px 21px; border: 1px solid transparent; border-radius: var(--site-radius); font-size: 14px; font-weight: 550; line-height: 1.5; cursor: pointer; transition: background .16s, border-color .16s, color .16s; }
@@ -284,7 +285,6 @@
 .site-button-primary:hover { background: var(--action-hover); }
 .site-button-secondary { border-color: var(--line-strong); color: var(--ink); background: transparent; }
 .site-button-secondary:hover { background: var(--hover); border-color: var(--ink-3); }
-.site-nav-download { min-height: 35px; padding: 7px 13px; font-size: 13px; }
 .site-text-link { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 14px; }
 .site-text-link:hover { text-decoration: underline; text-underline-offset: 4px; }
 .site-mobile-nav { display: none; }
@@ -299,13 +299,19 @@
 .site-route-error { min-height: 70vh; padding: calc(var(--nav-height) + 90px) 24px 70px; text-align: center; }
 .site-route-error h1 { font-size: 28px; font-weight: 500; }
 .site-route-error p { color: var(--ink-2); margin: 18px 0 28px; font-size: 14px; }
+.site-header[data-home="true"] { position: absolute; border: 0; background: transparent; backdrop-filter: none; }
+.site-header[data-home="true"] .site-brand { color: #f5f4f0; }
+.site-header[data-home="true"] .site-nav-link, .site-header[data-home="true"] .site-icon-button { color: #ddddd8; }
+.site-header[data-home="true"] .site-nav-link:hover, .site-header[data-home="true"] .site-icon-button:hover { color: #ffffff; }
+.site-header[data-home="true"] .site-icon-button:hover { background: #ffffff15; }
 .site-footer { border-top: 1px solid var(--line); background: var(--canvas-alt); }
-.site-footer-main { display: flex; align-items: center; justify-content: space-between; gap: 40px; padding-top: 48px; padding-bottom: 40px; }
-.site-footer-tagline { margin-top: 13px; font-size: 13px; color: var(--ink-2); }
-.site-footer-links { display: flex; flex-wrap: wrap; gap: 22px; font-size: 13px; color: var(--ink-2); }
-.site-footer-links > a { display: inline-flex; align-items: center; gap: 5px; }
-.site-footer-links > a:hover { color: var(--accent); }
-.site-footer-bottom { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 22px; padding-bottom: 22px; font-size: 12px; color: var(--ink-3); }
+.site-footer-main { display: grid; grid-template-columns: 1fr 1.5fr; gap: 80px; padding-block: 62px; }
+.site-footer-tagline { margin-top: 24px; font-family: Georgia, "Songti SC", STSong, serif; font-size: 24px; line-height: 1.5; color: var(--ink); }
+.site-footer-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; font-size: 13px; color: var(--ink-2); }
+.site-footer-links h2 { color: var(--ink-3); font-size: 12px; font-weight: 450; margin-bottom: 23px; }
+.site-footer-links a { display: block; width: fit-content; margin-top: 14px; line-height: 1.7; }
+.site-footer-links a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
+.site-footer-bottom { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); padding-block: 22px; font-size: 12px; color: var(--ink-3); }
 .download-page { padding-top: calc(var(--nav-height) + 76px); padding-bottom: 96px; }
 .download-heading { max-width: 650px; margin: 0 auto 56px; text-align: center; }
 .download-heading h1 { font-family: var(--site-font-display); font-weight: 600; letter-spacing: -.04em; font-size: clamp(36px, 5vw, 52px); line-height: 1.25; }
@@ -345,13 +351,13 @@
 @media (max-width: 767px) {
   :root { --nav-height: 64px; }
   .site-nav { gap: 16px; }
-  .site-nav-links, .site-nav-github, .site-nav-download { display: none; }
+  .site-nav-links, .site-nav-github { display: none; }
   .site-nav-actions { margin-left: auto; }
   .site-mobile-nav { display: block; }
   .site-brand > span { font-size: 23px; }
-  .site-footer-main { align-items: flex-start; flex-direction: column; gap: 28px; padding-top: 36px; padding-bottom: 32px; }
+  .site-footer-main { grid-template-columns: 1fr; gap: 38px; padding-block: 40px; }
   .site-footer-links { gap: 18px; }
-  .site-footer-bottom { gap: 12px; align-items: flex-start; flex-direction: column; }
+  .site-footer-bottom { gap: 12px; }
   .download-page { padding-top: calc(var(--nav-height) + 48px); padding-bottom: 64px; }
   .download-heading { margin-bottom: 36px; }
   .download-heading p { font-size: 14px; }

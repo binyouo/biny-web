@@ -11,7 +11,7 @@
 .client-demo-feedback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; padding: 24px; background: var(--canvas-alt); color: var(--ink-2); text-align: center; font-size: 13px; }
 .client-demo-feedback p { margin: 0; line-height: 1.8; }
 .client-demo-preview.is-expanded { position: fixed; z-index: 100; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: auto; padding: 24px; background: var(--canvas); }
-.client-demo-preview.is-expanded > * { width: min(100%, 1311px, calc((100dvh - 118px) * 1311 / 847)); flex: none; }
+.client-demo-preview.is-expanded > * { width: min(100%, 1353px, calc((100dvh - 118px) * 1353 / 828)); flex: none; }
 @media (max-width: 600px) {
   .client-demo-controls { gap: 6px; }
   .client-demo-status { width: 100%; }

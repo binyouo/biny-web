@@ -1,0 +1,185 @@
+.computer-use-settings .cu-muted { margin: 0; color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.5; overflow-wrap: anywhere; }
+.computer-use-settings .cu-section { display: flex; flex-direction: column; gap: var(--st-card-gap); }
+.computer-use-settings h4 { margin: 0; color: var(--text-secondary); font-size: calc(.875 * var(--st-rem)); font-weight: 500; }
+.computer-use-settings .cu-helper, .computer-use-settings .cu-permission, .computer-use-settings .cu-diagnostics { border: 1px solid var(--border-subtle); border-radius: var(--st-radius); background: var(--surface); padding: var(--st-control-py) var(--st-control-px); }
+.computer-use-settings .cu-helper { display: flex; align-items: center; gap: var(--st-control-gap); min-width: 0; }
+.computer-use-settings .cu-helper > svg { color: var(--text-tertiary); flex-shrink: 0; }
+.computer-use-settings .cu-helper[data-loaded="true"] > svg, .computer-use-settings .cu-permission-state.is-granted { color: var(--green-text); }
+.computer-use-settings .cu-permission-state.is-denied { color: var(--red-text); }
+.computer-use-settings .cu-helper strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 400; font-size: calc(.875 * var(--st-rem)); color: var(--text); }
+.computer-use-settings .cu-helper > span { flex-shrink: 0; color: var(--text-secondary); font-size: calc(.8 * var(--st-rem)); }
+.computer-use-settings .cu-permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--st-card-gap); }
+.computer-use-settings .cu-permission { display: flex; align-items: center; justify-content: space-between; gap: var(--st-control-gap); flex-wrap: wrap; }
+.computer-use-settings .cu-permission > div { min-width: 0; flex: 1 1 180px; }
+.computer-use-settings .cu-permission > button { flex: none; }
+.computer-use-settings .cu-permission-state { display: inline-flex; color: var(--text-tertiary); }
+.computer-use-settings .cu-button-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--st-control-gap); }
+.computer-use-settings .cu-diagnostics { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: calc(.8 * var(--st-rem)); margin: 0; max-height: 240px; overflow: auto; }
+.computer-use-settings details { padding-top: var(--st-card-gap); }
+.computer-use-settings summary { cursor: pointer; color: var(--text-secondary); }
+.computer-use-settings .cu-foreground { display: flex; align-items: center; gap: var(--st-control-gap); margin: var(--st-card-gap) 0; }
+.computer-use-settings .cu-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@container settings (max-width: 560px) { .computer-use-settings .cu-permission-grid { grid-template-columns: 1fr; } }
+
+.computer-use-settings .cu-description { margin: 0; color: var(--text-secondary); line-height: 1.6; }
+.computer-use-settings .cu-helper, .computer-use-settings .cu-permission { min-height: calc(36px * var(--font-scale, 1)); }
+.computer-use-settings .cu-feedback { margin: 0; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
+.computer-use-settings .cu-feedback[role="alert"] { color: var(--red-text); }
+.computer-use-settings .cu-controls, .computer-use-settings .cu-technical-details { border-top: 1px solid var(--border-subtle); }
+.computer-use-settings details > summary { font-size: calc(12px * var(--font-scale, 1)); }
+.computer-use-settings details[open] > summary { margin-bottom: 12px; }
+.computer-use-settings details .cu-description { margin-bottom: 12px; }
+
+.computer-use-settings .cu-toggles { display: grid; gap: 0; }
+
+.computer-use-settings .cu-confirm {
+  margin-top: 12px; padding: 14px;
+  border: 1px solid var(--red-text, var(--border-subtle));
+  border-radius: var(--st-radius); background: var(--surface);
+}
+.computer-use-settings .cu-confirm h4 { margin: 0 0 6px; font-size: calc(13px * var(--font-scale, 1)); }
+.computer-use-settings .cu-confirm .cu-muted { margin: 0 0 12px; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); line-height: 1.6; }
+.computer-use-settings .cu-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.computer-use-settings .cu-confirm-actions .is-danger { color: var(--red-text); border-color: var(--red-text); }
+.computer-use-settings .cu-path {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: calc(11px * var(--font-scale, 1));
+  word-break: break-all;
+}
+
+/* 「测试我的配置」的逐项结果：每行一项，失败项要能一眼扫到。 */
+.computer-use-settings .cu-checkup { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.computer-use-settings .cu-checkup li { font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
+.computer-use-settings .cu-checkup li[data-ok="false"] { color: var(--red-text); }
+
+/* ── Appshots ──────────────────────────────────────────────────────────────
+   截图设置采用介绍卡和行卡片：一个带徽章的介绍卡、
+   一张 divide 的行列表、一条脚注。所有行共用同一套 4px/16px 间距节奏。 */
+.appshot-settings .appshot-hero {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: calc(12px * var(--font-scale, 1));
+}
+.appshot-settings .appshot-hero-badge {
+  display: inline-flex;
+  width: calc(48px * var(--font-scale, 1));
+  height: calc(48px * var(--font-scale, 1));
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: calc(12px * var(--font-scale, 1));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.appshot-settings .appshot-hero-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.appshot-settings .appshot-hero-copy h3 { margin: 0; }
+.appshot-settings .appshot-hero-copy strong { color: var(--text); font-weight: 550; }
+
+/* 行卡片不撑开 gap，使用 border-top 显示分隔线。 */
+.desktop-settings-dialog .settings-modal .appshot-settings .appshot-rows { padding: 0; gap: 0; }
+.appshot-settings .appshot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(16px * var(--font-scale, 1));
+  padding: var(--st-row-padding);
+}
+.appshot-settings .appshot-row + .appshot-row { border-top: 1px solid var(--border-subtle); }
+.appshot-settings .appshot-row-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
+.appshot-settings .appshot-row-copy > strong {
+  color: var(--text);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 550;
+}
+.appshot-settings .appshot-row-copy > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+.appshot-settings .appshot-row-copy > p strong { color: var(--text); font-weight: 550; }
+.appshot-settings .appshot-row-copy .appshot-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--red-text);
+}
+.appshot-settings .appshot-link {
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: none;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.appshot-settings .appshot-link:disabled { opacity: .55; }
+
+/* 下拉框：宽度按内容走、不随行拉伸，触发器里留出一枚加载指示的位置。 */
+.appshot-settings .appshot-field { flex: none; }
+.appshot-settings .appshot-select {
+  display: inline-flex;
+  min-width: calc(120px * var(--font-scale, 1));
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--st-radius);
+  background: var(--surface-soft);
+}
+.appshot-settings .appshot-select select {
+  width: 100%;
+  min-height: calc(32px * var(--font-scale, 1));
+  padding: 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: calc(13px * var(--font-scale, 1));
+}
+.appshot-settings .appshot-select:hover { background: var(--surface-hover); }
+.appshot-settings .appshot-select:focus-within { border-color: var(--accent); }
+.appshot-settings .appshot-select select:focus-visible { outline: none; }
+.appshot-settings .appshot-spin { flex: none; color: var(--text-tertiary); animation: appshot-spin 1s linear infinite; }
+@keyframes appshot-spin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { .appshot-settings .appshot-spin { animation: none; } }
+
+/* 监听未开启时显示警示卡，使用琥珀色边框和淡色背景。 */
+.appshot-settings .appshot-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(12px * var(--font-scale, 1));
+  padding: calc(16px * var(--font-scale, 1));
+  border: 1px solid color-mix(in srgb, var(--amber-text) 40%, transparent);
+  border-radius: var(--st-radius);
+  background: color-mix(in srgb, var(--amber-text) 5%, transparent);
+}
+.appshot-settings .appshot-notice > svg { flex: none; margin-top: 2px; color: var(--amber-text); }
+.appshot-settings .appshot-notice p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+
+.appshot-settings .appshot-foot { gap: calc(12px * var(--font-scale, 1)); }
+.appshot-settings .appshot-foot .cu-description { font-size: calc(12px * var(--font-scale, 1)); }
+
+@container settings (max-width: 560px) {
+  .appshot-settings .appshot-row { flex-direction: column; align-items: stretch; }
+  .appshot-settings .appshot-field { align-self: flex-start; }
+}
+
+/* 嵌套在小节里的标题拿不到 `.settings-sections > section > h3` 那条规则（它要求
+   直接子元素），字体会掉回浏览器默认的 16.38px/700，比同页其它卡片标题更重。
+   这里补一条同尺寸的。 */
+.desktop-settings-dialog .settings-modal .appshot-settings .appshot-hero-copy h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: calc(1.125 * var(--st-rem));
+  font-weight: 500;
+  letter-spacing: 0;
+}
+/* 行卡片自己管分隔线，不要父级的 gap。 */
+.desktop-settings-dialog .settings-modal .appshot-settings .appshot-rows > * + * { margin-top: 0; }

@@ -1,5 +1,8 @@
 node_modules/
-website/node_modules/
 website/dist/
-website/tsconfig.tsbuildinfo
+website/.mount-test-*/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
 .DS_Store

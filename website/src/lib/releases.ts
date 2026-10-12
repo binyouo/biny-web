@@ -33,6 +33,15 @@ function classify(name: string): { arch: Arch; kind: AssetKind } | null {
 }
 
 export function parseRelease(value: unknown): ReleaseInfo {
+  if (Array.isArray(value)) {
+    for (const candidate of value) {
+      if (!record(candidate)) throw new TypeError("Invalid release response");
+      if (candidate.draft === true) continue;
+      const release = parseRelease(candidate);
+      if (release.assets.length) return release;
+    }
+    return { version: "", publishedAt: null, assets: [] };
+  }
   if (!record(value) || typeof value.tag_name !== "string" || !Array.isArray(value.assets)) {
     throw new TypeError("Invalid release response");
   }

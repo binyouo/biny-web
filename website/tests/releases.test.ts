@@ -54,3 +54,22 @@ test("malformed download assets are omitted without hiding valid installers", ()
   } as never);
   assert.deepEqual(release.assets.map(({ name }) => name), ["Biny-1.0.0-arm64.dmg"]);
 });
+
+test("a public Beta is available even when no stable release exists", () => {
+  const release = parseRelease([
+    { tag_name: "v0.0.1-beta.2", draft: false, prerelease: true, published_at: "2026-10-11T21:37:32Z", assets: [asset("Biny-0.0.1-beta.2-arm64.dmg"), asset("Biny-0.0.1-beta.2-x64.dmg")] }
+  ]);
+  assert.equal(release.version, "0.0.1-beta.2");
+  assert.deepEqual(release.assets.map(({ arch }) => arch), ["arm64", "x64"]);
+});
+
+test("release discovery skips drafts and releases without installers; an empty list stays unpublished", () => {
+  const release = parseRelease([
+    { tag_name: "v9", draft: true, assets: [asset("Biny-9-arm64.dmg")] },
+    { tag_name: "v2", draft: false, assets: [] },
+    { tag_name: "v1", draft: false, assets: [asset("Biny-1-arm64.dmg")] }
+  ]);
+  assert.equal(release.version, "1");
+  assert.deepEqual(parseRelease([]), { version: "", publishedAt: null, assets: [] });
+  assert.throws(() => parseRelease([null]), /release/i);
+});

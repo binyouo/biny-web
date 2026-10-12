@@ -32,7 +32,7 @@ function PageEffects() {
     const anchor = anchorId ? document.getElementById(anchorId) : null;
     if (anchor) anchor.scrollIntoView();
     else window.scrollTo({ top: 0 });
-    document.querySelector('link[rel="canonical"]')?.setAttribute("href", `https://biny.dev${pathname}`);
+    document.querySelector('link[rel="canonical"]')?.setAttribute("href", `https://biny.online${pathname}`);
     if (/^\/[^/]+\/docs(?:\/|$)/.test(pathname)) return;
     const downloading = pathname.endsWith("/download");
     const home = pathname === "/zh" || pathname === "/zh/";
