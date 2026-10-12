@@ -21,7 +21,7 @@ pnpm build
 pnpm preview
 ```
 
-网站源码由私有 `biny-web` 仓库维护。`vendor/biny/` 保存交互演示使用的客户端、共享模块及类型依赖快照；仅用于类型检查的后端模块保留 `.d.ts`，不携带执行实现。模块引用均在本仓库内，版本元信息位于 `vendor/biny/package.json`。更新演示快照时，需要同步依赖并运行完整网站测试和构建。
+网站源码由 `biny-web` 仓库维护。`vendor/biny/` 保存交互演示使用的客户端、共享模块及类型依赖快照；仅用于类型检查的后端模块保留 `.d.ts`，不携带执行实现。模块引用均在本仓库内，版本元信息位于 `vendor/biny/package.json`。更新演示快照时，需要同步依赖并运行完整网站测试和构建。
 
 ## 页面与职责
 
@@ -99,6 +99,6 @@ tests/                    文档搜索、路径、下载目录与演示播放与
 
 ## 部署与验收
 
-`pnpm build` 输出到 `dist/`。支持 SPA rewrite 的托管平台可使用 `public/_redirects`；没有 rewrite 时执行 `pnpm build:pages`，为文档、下载及旧入口生成实际 HTML 文件。`vite.config.ts` 是唯一构建配置来源。域名元信息为 `biny.online`；DNS 与 HTTPS 需要在所选托管平台完成绑定后验证。
+`pnpm build` 输出到 `dist/`。支持 SPA rewrite 的托管平台可使用 `public/_redirects`；没有 rewrite 时执行 `pnpm build:pages`，为文档、下载及旧入口生成实际 HTML 文件。`vite.config.ts` 是唯一构建配置来源。`main` 的推送通过测试和构建后自动发布至 GitHub Pages。域名为 `biny.online`，域名绑定与 HTTPS 在该仓库的 Pages 设置中管理。
 
 人工检查首页演示、导航、主题、文档搜索、目录锚点与上下篇；在窄屏检查移动菜单和文档目录；在下载页检查失败重试和代码复制反馈。演示需检查会话切换、工具展开、停止、快进停在权限请求、允许/拒绝、重播、输入框菜单和错误反馈；检查放大/收起、键盘焦点、整体缩放，以及向上阅读时的滚动。测试、类型检查与构建通过不表示界面已验收。
