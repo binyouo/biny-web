@@ -300,10 +300,6 @@
 .site-route-error h1 { font-size: 28px; font-weight: 500; }
 .site-route-error p { color: var(--ink-2); margin: 18px 0 28px; font-size: 14px; }
 .site-header[data-home="true"] { position: absolute; border: 0; background: transparent; backdrop-filter: none; }
-.site-header[data-home="true"] .site-brand { color: #f5f4f0; }
-.site-header[data-home="true"] .site-nav-link, .site-header[data-home="true"] .site-icon-button { color: #ddddd8; }
-.site-header[data-home="true"] .site-nav-link:hover, .site-header[data-home="true"] .site-icon-button:hover { color: #ffffff; }
-.site-header[data-home="true"] .site-icon-button:hover { background: #ffffff15; }
 .site-footer { border-top: 1px solid var(--line); background: var(--canvas-alt); }
 .site-footer-main { display: grid; grid-template-columns: 1fr 1.5fr; gap: 80px; padding-block: 62px; }
 .site-footer-tagline { margin-top: 24px; font-family: Georgia, "Songti SC", STSong, serif; font-size: 24px; line-height: 1.5; color: var(--ink); }

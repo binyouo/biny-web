@@ -17,7 +17,7 @@ export function HomePage() {
             <h1 id="home-title">{copy.title}</h1>
             <p className="home-intro">{copy.intro}</p>
             <div className="home-hero-actions">
-              <Link className="home-pill home-pill-light" to={localePath("/download", locale)}>下载 Biny<Icon name="arrowRight" size={17} /></Link>
+              <Link className="home-pill home-pill-solid" to={localePath("/download", locale)}>下载 Biny<Icon name="arrowRight" size={17} /></Link>
               <Link className="home-pill home-pill-outline" to={localePath("/docs/quick-start", locale)}>开始使用<Icon name="external" size={15} /></Link>
             </div>
             <p className="home-platform-note">macOS Desktop · TUI · CLI</p>
