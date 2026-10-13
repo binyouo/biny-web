@@ -30,6 +30,7 @@ function toolName(step: DemoToolStep): string {
   return ({ "读取文件": "Read", "搜索内容": "Grep", "列出文件": "Glob", "写入文件": "Write", "编辑文件": "Edit" } as Record<string, string>)[step.name] ?? step.name;
 }
 function toolArgs(step: DemoToolStep): Record<string, unknown> {
+  if (step.args) return step.args;
   return step.command ? { command: step.command.text } : { path: step.diff?.path ?? step.filePath ?? step.summary, content: step.diff?.lines.filter(line => line.sign !== "-").map(line => line.text).join("\n") };
 }
 function toolResult(step: DemoToolStep): unknown {
@@ -59,21 +60,29 @@ function history(scenario: DemoScenario): SessionEvent[] {
 }
 
 type EventBody = AgentHostEvent extends infer E ? E extends AgentHostEvent ? Omit<E, "sessionId" | "runId" | "timestamp"> : never : never;
-interface Options { onBrowserBounds?: (bounds?: DesktopBrowserBounds) => void; schedule?: (callback: () => void, delay: number) => () => void; onState?: (status: "idle" | "playing" | "waiting" | "done") => void; }
+interface Options {
+  onBrowserBounds?: (bounds?: DesktopBrowserBounds) => void;
+  schedule?: (callback: () => void, delay: number) => () => void;
+  onState?: (status: "idle" | "playing" | "paused" | "waiting" | "done") => void;
+  scenarios?: DemoScenario[];
+  initialSessionId?: string;
+  filePanelWidth?: number;
+  browserPage?: { title: string; url: string };
+}
 
 /** 只替换 preload 的数据边界，所有布局、交互和事件归约仍由 Desktop 负责。 */
 export function createDesktopDemo(options: Options = {}) {
   const schedule = options.schedule ?? ((callback, delay) => { const timer = setTimeout(callback, delay); return () => clearTimeout(timer); });
   const listeners = new Map<string, Set<(value: unknown) => void>>();
-  const scenarios = zh.demoScenarios;
+  const scenarios = options.scenarios ?? zh.demoScenarios;
   const documents = new Map<string, DesktopSessionDocument>();
-  let selectedId: string | undefined = "memory";
+  let selectedId: string | undefined = options.initialSessionId ?? "memory";
   let model = models[0]!;
   let permissionMode: DesktopWorkspaceSnapshot["permissionMode"] = "ask";
   let cancelTimer: (() => void) | undefined;
   let epoch = 0;
   let pendingReplay: string | undefined;
-  let status: "idle" | "playing" | "waiting" | "done" = "idle";
+  let status: "idle" | "playing" | "paused" | "waiting" | "done" = "idle";
   let run: { scenario: DemoScenario; id: string; index: number; queue: EventBody[]; snapshot: InteractiveRuntimeSnapshot; permission?: DemoToolStep; requestId?: string; toolCallId?: string } | undefined;
   const emit = (channel: string, value?: unknown) => { for (const listener of listeners.get(channel) ?? []) listener(structuredClone(value)); };
   const setStatus = (next: typeof status) => { status = next; options.onState?.(next); };
@@ -87,7 +96,7 @@ export function createDesktopDemo(options: Options = {}) {
   const document = (id: string) => { const value = documents.get(id); if (!value) throw new Error("演示会话不存在。"); return value; };
   const sessions = () => [...documents.values()].map(item => item.session);
   const workspace = (): DesktopWorkspaceSnapshot => structuredClone({ project, sessions: sessions(), selectedSessionId: selectedId, runtime: selectedId ? document(selectedId).runtimeSnapshot : undefined, permissionMode, memory: memoryPolicySchema.parse(undefined), capabilityDefaults: { tools: "auto", skills: "auto" }, requiresModelConfiguration: false, models, pickerModels: models, connections: [] });
-  const bootstrap = (): DesktopBootstrap => ({ version: packageInfo.version, platform: "darwin", projects: [project], sidebarSessions: sessions(), activeProjectId: project.id, selectedSessionId: selectedId, activeView: "chat", workspace: workspace(), sidebarWidth: 250, filePanelWidth: 372, ...demoAppearance });
+  const bootstrap = (): DesktopBootstrap => ({ version: packageInfo.version, platform: "darwin", projects: [project], sidebarSessions: sessions(), activeProjectId: project.id, selectedSessionId: selectedId, activeView: "chat", workspace: workspace(), sidebarWidth: 250, filePanelWidth: options.filePanelWidth ?? 372, ...demoAppearance });
   function publish(body: EventBody) {
     if (!run) return;
     const event = { ...body, sessionId: run.scenario.id, runId: run.id, timestamp: new Date().toISOString() } as AgentHostEvent;
@@ -144,14 +153,14 @@ export function createDesktopDemo(options: Options = {}) {
   function replay(id = selectedId ?? "memory") {
     const scenario = scenarios.find(item => item.id === id);
     if (!scenario) throw new Error("请选择预置演示会话。");
-    if (run && ["playing", "waiting"].includes(status)) publish({ type: "run.cancelled", durationMs: 0, reason: "重新播放" });
+    if (run && ["playing", "paused", "waiting"].includes(status)) publish({ type: "run.cancelled", durationMs: 0, reason: "重新播放" });
     stop(); selectedId = id; pendingReplay = id;
     const doc = document(id); doc.events = []; doc.liveEvents = []; doc.runtimeSnapshot = snapshot(id);
     setStatus("idle");
     emit("onSessionHandoff", { projectId: project.id, sessionId: id });
   }
   const implemented: Partial<DesktopApi> = {
-    ...createInspectorDemo(emit, options.onBrowserBounds),
+    ...createInspectorDemo(emit, options.onBrowserBounds, options.browserPage),
     bootstrap: async () => structuredClone(bootstrap()),
     selectProject: async () => workspace(), refreshProject: async () => workspace(),
     openSession: async (_projectId, id) => structuredClone(document(id)),
@@ -163,7 +172,7 @@ export function createDesktopDemo(options: Options = {}) {
     listProjectBranches: async () => [{ name: "main", current: true }],
     sendPrompt: async (_projectId, _id, input, attachments) => {
       if (attachments.length) throw new Error("演示不读取上传文件，请在桌面端使用附件。");
-      if (run && ["playing", "waiting"].includes(status)) throw new Error("请先停止当前演示。");
+      if (run && ["playing", "paused", "waiting"].includes(status)) throw new Error("请先停止当前演示。");
       const scenario = scenarios.find(item => item.steps.some(step => step.kind === "user" && step.text === input.trim()));
       if (!scenario) throw new Error("这里只播放预置场景。请在侧栏选择会话后点重播，或下载 Biny 开始真实对话。");
       stop(); selectedId = scenario.id;
@@ -211,5 +220,14 @@ export function createDesktopDemo(options: Options = {}) {
     if (passiveChannels.has(property)) return (listener: (value: unknown) => void) => { const channel = listeners.get(property) ?? new Set(); listeners.set(property, channel); channel.add(listener); return () => { channel.delete(listener); }; };
     return async () => { throw new Error("此操作需要桌面端；网页演示不连接系统、模型或真实文件。"); };
   } }) as DesktopApi;
-  return { api, replay, get status() { return status; }, start() { if (status === "idle" && !pendingReplay) replay(); }, skip() { cancelTimer?.(); while (run && status === "playing") advance(true); }, dispose() { stop(); options.onBrowserBounds?.(); listeners.clear(); } };
+  return {
+    api, replay, get status() { return status; },
+    showBrowser() { emit("onBrowserOpenRequest", project.id); },
+    toggleSidebar() { emit("onMenuAction", "toggle-sidebar"); },
+    start() { if (status === "idle" && !pendingReplay) replay(); },
+    pause() { if (status !== "playing") return; cancelTimer?.(); cancelTimer = undefined; setStatus("paused"); },
+    resume() { if (status !== "paused") return; setStatus("playing"); advance(); },
+    skip() { cancelTimer?.(); if (status === "paused") setStatus("playing"); while (run && status === "playing") advance(true); },
+    dispose() { stop(); options.onBrowserBounds?.(); listeners.clear(); }
+  };
 }

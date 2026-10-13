@@ -1,21 +1,23 @@
-.client-demo-preview { width: 100%; }
-.client-demo-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
-.client-demo-status { margin-right: auto; color: var(--ink-3); font-size: 12px; }
-.client-demo-controls button,
-.client-demo-feedback button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink-2); font-size: 12px; cursor: pointer; }
-.client-demo-controls button:hover:not(:disabled),
-.client-demo-feedback button:hover { color: var(--ink); background: var(--hover); }
+.client-demo-preview { position: relative; width: 100%; }
+.client-demo-controls { position: absolute; z-index: 3; bottom: 9px; right: 9px; display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid #ffffff18; border-radius: 8px; background: #242424ed; opacity: 0; pointer-events: none; transition: opacity .16s ease; }
+.client-demo-preview:hover .client-demo-controls, .client-demo-preview:focus-within .client-demo-controls { opacity: 1; pointer-events: auto; }
+.client-demo-controls button { display: inline-flex; align-items: center; justify-content: center; padding: 7px; border: 0; border-radius: 5px; color: #ccc; cursor: pointer; }
+.client-demo-controls button:hover:not(:disabled) { background: #ffffff12; color: #fff; }
 .client-demo-controls button:disabled { opacity: .45; cursor: default; }
 .client-demo-stage { position: relative; width: 100%; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 13px; background: #1f1f1f; box-shadow: var(--site-shadow); }
 .client-demo-frame { position: absolute; inset: 0 auto auto 0; border: 0; transform-origin: 0 0; }
 .client-demo-feedback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; padding: 24px; background: var(--canvas-alt); color: var(--ink-2); text-align: center; font-size: 13px; }
 .client-demo-feedback p { margin: 0; line-height: 1.8; }
+.client-demo-feedback button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink-2); font-size: 12px; cursor: pointer; }
+.client-demo-feedback button:hover { color: var(--ink); background: var(--hover); }
 .client-demo-preview.is-expanded { position: fixed; z-index: 100; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: auto; padding: 24px; background: var(--canvas); }
-.client-demo-preview.is-expanded > * { width: min(100%, 1353px, calc((100dvh - 118px) * 1353 / 828)); flex: none; }
+.client-demo-preview.is-expanded > .client-demo-stage { width: min(100%, 1353px, calc((100dvh - 80px) * 1353 / 828)); flex: none; }
+.client-demo-preview.is-expanded > .client-demo-controls { position: fixed; bottom: 20px; right: 20px; opacity: 1; pointer-events: auto; }
+.client-demo-computer .client-demo-stage { box-shadow: none; border-radius: 9px; }
+.client-demo-computer .client-demo-frame { pointer-events: none; }
+@media (hover: none) { .client-demo-controls { opacity: 1; pointer-events: auto; } }
+@media (prefers-reduced-motion: reduce) { .client-demo-controls { transition: none; } }
 @media (max-width: 600px) {
-  .client-demo-controls { gap: 6px; }
-  .client-demo-status { width: 100%; }
-  .client-demo-controls button { padding: 6px 8px; font-size: 11px; }
   .client-demo-feedback { gap: 10px; padding: 14px; font-size: 12px; }
   .client-demo-preview.is-expanded { padding: 14px; }
 }

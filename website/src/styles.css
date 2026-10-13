@@ -1,4 +1,5 @@
 @import "tailwindcss" source(none);
+@import "./motion.css";
 @source "./";
 
 /* 页面底色、文字和操作强调色由浅深两组令牌统一提供。 */

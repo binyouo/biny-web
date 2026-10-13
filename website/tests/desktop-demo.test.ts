@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDesktopDemo } from "../src/demo/desktopDemo.ts";
+import { computerScenario, computerPage } from "../src/demo/computerScenario.ts";
 import type { DesktopAgentEventEnvelope } from "../vendor/biny/src/desktop/protocol.ts";
 
 function fixture() {
@@ -144,4 +145,36 @@ test("右栏交互只改变本次演示，浏览器隐藏与销毁清除预览�
   await demo.api.browserBounds("demo", "demo-page-1", rect);
   demo.dispose(); fresh.dispose();
   assert.equal(bounds.at(-1), undefined);
+});
+
+test("电脑场景暂停不会推进，继续与重播仍使用本轮事件和原始参数", async () => {
+  const pending = new Set<() => void>();
+  const demo = createDesktopDemo({ scenarios: [computerScenario], initialSessionId: "computer", browserPage: computerPage,
+    schedule(callback) { pending.add(callback); return () => pending.delete(callback); }
+  });
+  const events: DesktopAgentEventEnvelope[] = [];
+  demo.api.onAgentEvent(event => events.push(event));
+  demo.start();
+  await demo.api.commitSelection("demo", "computer", "chat");
+  demo.pause();
+  const count = events.length;
+  assert.equal(demo.status, "paused");
+  assert.equal(pending.size, 0);
+  assert.equal(events.length, count);
+  demo.resume();
+  assert.ok(events.length > count);
+  demo.pause();
+  demo.replay();
+  assert.equal(pending.size, 0);
+  assert.equal(events.at(-1)?.event?.type, "run.cancelled");
+  await demo.api.commitSelection("demo", "computer", "chat");
+  demo.skip();
+  assert.equal(demo.status, "done");
+  const action = events.find(({ event }) => event?.type === "tool.started" && event.tool === "ComputerAction")?.event;
+  assert.ok(action?.type === "tool.started");
+  assert.equal(action.args.text, "安静的咖啡馆");
+  const browser = await demo.api.browserSnapshot("demo");
+  assert.equal(browser.tabs[0]?.title, computerPage.title);
+  await assert.rejects(demo.api.browserAction("demo", { type: "navigate", tabId: browser.activeId!, url: "https://example.com" }), /示例网页/);
+  demo.dispose();
 });

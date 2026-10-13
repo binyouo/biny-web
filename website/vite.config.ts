@@ -15,7 +15,7 @@ export default defineConfig({
     outDir: "dist",
     target: "es2022",
     rollupOptions: {
-      input: { main: path.resolve(import.meta.dirname, "index.html"), clientDemo: path.resolve(import.meta.dirname, "client-demo.html") }
+      input: { main: path.resolve(import.meta.dirname, "index.html"), clientDemo: path.resolve(import.meta.dirname, "client-demo.html"), renderDemo: path.resolve(import.meta.dirname, "render-demo.html") }
     }
   }
 });

@@ -10,7 +10,10 @@ function focusableElements(root: ParentNode): HTMLElement[] {
     .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0);
 }
 
-export function BinyWindow() {
+export function BinyWindow({ variant }: { variant?: "computer" }) {
+  const computer = variant === "computer";
+  const width = computer ? 1000 : CLIENT_WIDTH;
+  const height = computer ? 690 : CLIENT_HEIGHT;
   const { t } = useI18n();
   const [viewRef, inView] = useInView<HTMLDivElement>("-15% 0px");
   const previewRef = useRef<HTMLDivElement>(null);
@@ -30,7 +33,11 @@ export function BinyWindow() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [expanded, setExpanded] = useState(false);
-  visibleRef.current = inView || expanded;
+  const [onScreen, setOnScreen] = useState(false);
+  const [pageVisible, setPageVisible] = useState(!document.hidden);
+  const autoPaused = useRef(false);
+  const active = (computer ? onScreen : inView) || expanded;
+  visibleRef.current = active && pageVisible;
   expandedRef.current = expanded;
 
   const send = useCallback((command: DemoCommand["command"]) => {
@@ -96,11 +103,19 @@ export function BinyWindow() {
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const resize = () => setScale(clientScale(stage.clientWidth));
+    const resize = () => setScale(computer ? Math.min(1, stage.clientWidth / width) : clientScale(stage.clientWidth));
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(stage);
     return () => observer.disconnect();
+  }, [computer, width]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting), { threshold: 0 });
+    if (stageRef.current) observer.observe(stageRef.current);
+    const sync = () => setPageVisible(!document.hidden);
+    document.addEventListener("visibilitychange", sync);
+    return () => { observer.disconnect(); document.removeEventListener("visibilitychange", sync); };
   }, []);
 
   useEffect(() => {
@@ -127,7 +142,14 @@ export function BinyWindow() {
   }, [clearLoadTimer, loadAttempt]);
 
   useEffect(() => () => frameListenerCleanupRef.current?.(), []);
-  useEffect(() => { if ((inView || expanded) && ready) send("start"); }, [inView, expanded, ready, send]);
+  useEffect(() => {
+    if (!ready) return;
+    if (active && pageVisible) {
+      if (status === "idle") send("start");
+      if (status === "paused" && autoPaused.current) { autoPaused.current = false; send("resume"); }
+      if (computer && status === "playing" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) send("skip");
+    } else if (computer && status === "playing") { autoPaused.current = true; send("pause"); }
+  }, [active, pageVisible, ready, status, computer, send]);
 
   useEffect(() => {
     if (!ready || !pendingReadyFocusRef.current) return;
@@ -189,28 +211,29 @@ export function BinyWindow() {
       <div
         aria-label={expanded ? "客户端交互演示" : undefined}
         aria-modal={expanded ? true : undefined}
-        className={`client-demo-preview${expanded ? " is-expanded" : ""}`}
+        className={`client-demo-preview${computer ? " client-demo-computer" : ""}${expanded ? " is-expanded" : ""}`}
         ref={previewRef}
         role={expanded ? "dialog" : undefined}
       >
         <div className="client-demo-controls">
-          <span aria-live="polite" className="client-demo-status">{loadError ? "演示加载失败" : !ready ? "正在加载演示…" : status === "waiting" ? t.demo.controls.waiting : status === "done" ? t.demo.controls.done : status === "idle" ? "准备播放" : t.demo.controls.playing}</span>
-          <button disabled={!ready} onClick={() => send("replay")} ref={replayButtonRef} type="button"><Icon name="refresh" size={13} />{t.demo.controls.replay}</button>
-          <button disabled={!ready || status === "done"} onClick={() => send("skip")} type="button">{t.demo.controls.skip}</button>
-          <button aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} ref={expandButtonRef} type="button"><Icon name={expanded ? "close" : "panelRight"} size={13} />{expanded ? "收起演示" : "放大查看"}</button>
+          <span aria-live="polite" className="client-demo-status sr-only">{loadError ? "演示加载失败" : !ready ? "正在加载演示…" : status === "paused" ? "演示已暂停" : status === "waiting" ? t.demo.controls.waiting : status === "done" ? t.demo.controls.done : status === "idle" ? "准备播放" : computer ? "Biny 正在操作" : t.demo.controls.playing}</span>
+          <button disabled={!ready} aria-label="重播" title="重播" onClick={() => send("replay")} ref={replayButtonRef} type="button"><Icon name="refresh" size={13} /></button>
+          {!computer && <button disabled={!ready || status === "done"} aria-label={t.demo.controls.skip} title={t.demo.controls.skip} onClick={() => send("skip")} type="button"><Icon name="chevronRight" size={13} /></button>}
+          {!computer && <button aria-expanded={expanded} aria-label={expanded ? "收起演示" : "放大查看"} title={expanded ? "收起演示" : "放大查看"} onClick={() => setExpanded((value) => !value)} ref={expandButtonRef} type="button"><Icon name={expanded ? "close" : "panelRight"} size={13} /></button>}
         </div>
-        <div className="client-demo-stage" ref={stageRef} style={{ aspectRatio: `${CLIENT_WIDTH} / ${CLIENT_HEIGHT}` }}>
+        <div className="client-demo-stage" ref={stageRef} role={computer && ready ? "img" : undefined} aria-label={computer && ready ? "Biny 在浏览器中搜索咖啡馆并打开结果的预置动画" : undefined} style={{ aspectRatio: `${width} / ${height}` }}>
           <iframe
             className="client-demo-frame"
-            inert={!ready}
+            inert={computer || !ready}
+            aria-hidden={computer || undefined}
             key={loadAttempt}
             onError={() => { clearLoadTimer(); readyRef.current = false; setReady(false); setLoadError("演示加载失败，请重试。"); }}
             onLoad={handleFrameLoad}
             ref={iframeRef}
-            src="/client-demo.html"
-            style={{ width: CLIENT_WIDTH, height: CLIENT_HEIGHT, transform: `scale(${scale})`, visibility: scale ? "visible" : "hidden" }}
-            tabIndex={ready ? 0 : -1}
-            title="Biny 客户端预置交互演示"
+            src={computer ? "/client-demo.html?scene=computer" : "/client-demo.html"}
+            style={{ width, height, transform: `scale(${scale})`, visibility: scale ? "visible" : "hidden" }}
+            tabIndex={ready && !computer ? 0 : -1}
+            title={computer ? "Biny 电脑操作预置演示" : "Biny 客户端预置交互演示"}
           />
           {!ready ? <div className="client-demo-feedback" role="status">
             <p>{loadError ?? "正在加载客户端演示…"}</p>

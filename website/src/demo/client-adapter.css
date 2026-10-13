@@ -5,5 +5,9 @@
 .demo-window-traffic i:nth-child(2) { background: #febc2e; }
 .demo-window-traffic i:nth-child(3) { background: #28c840; }
 
-.demo-browser-page { position: fixed; z-index: 100; border: 0; background: #f5f4f0; }
+.demo-browser-page { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #f5f4f0; }
 .demo-browser-page[hidden] { display: none; }
+
+/* Secondary showcase: keep Biny's conversation and browser, with no app navigation. */
+html[data-demo="computer"] :is(.biny-sidebar-topbar-floating, .biny-sidebar-topbar-hit-layer, .desktop-inspector-header, .desktop-inspector-resizer) { display: none; }
+html[data-demo="computer"] :is(.biny-chat-toolbar button, .inspector-browser-preview-action, .inspector-browser-history, .inspector-browser-actions, .inspector-browser-new-tab, .inspector-browser-tab > button[title="关闭标签页"]) { display: none; }

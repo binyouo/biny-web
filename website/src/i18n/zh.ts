@@ -322,18 +322,18 @@ export const zh = {
     localeLabel: "简体中文"
   },
   home: {
-    title: "让每一次对话，\n都接得上一次。",
-    intro: "一个在你电脑上工作的 AI Agent。记住项目背景，使用你的工具，陪你把手头的事情做完。",
-    capabilities: [
-      { icon: "brain" as const, title: "记住，再出发", description: "偏好、项目约定和会话上下文留在本机，需要时可以查阅和管理。", example: "“按我习惯的格式，整理这周的工作。”", doc: "memory", link: "了解本地记忆" },
-      { icon: "folder" as const, title: "围绕项目做事", description: "读文件、理解代码、整理资料。把对话和项目放在一起，让任务有完整的上下文。", example: "“先看项目说明，再帮我找到入口。”", doc: "sessions", link: "了解项目与会话" },
-      { icon: "shield" as const, title: "每一步，都看得见", description: "查看工具过程和执行结果，选择操作权限；需要确认时，由你决定是否继续。", example: "“把改动列出来，确认后再执行。”", doc: "tools", link: "了解工具与权限" }
+    title: "一个记得你的\nAI 伙伴。",
+    intro: "记住你的偏好，找回看过的内容。Biny 在你的电脑上，陪你聊想法，也帮你把事情做完。",
+    features: [
+      { id: "history" as const, label: "Computer History", title: "看过的，问一句找回。", summary: "先看过一家京都旅馆，再问「刚才那家旅馆叫什么？」。Biny 找回名字和网页线索。记录覆盖不同应用，不限于某个工作区。" },
+      { id: "memory" as const, label: "Memory & Sleep", title: "聊过的，下次还记得。", summary: "示例：从不同对话中记住喜欢安静小旅馆的偏好，Sleep 合并重复记忆，几天后聊起新的旅行时再想起。" },
+      { id: "markdown" as const, label: "Rich Markdown", title: "不止文字。", summary: "聊天中呈现 Mermaid、Infographic、LaTeX、表格与可播放的 Strudel 音乐。点击标签切换示例，操作聊天后暂停轮播。" },
     ],
     providers: ["OpenAI", "Anthropic", "Gemini", "DeepSeek", "Kimi", "Qwen", "Ollama", "兼容 API"]
   },
   demo: {
     title: "从一句话，到每一步",
-    hint: "对话与右栏均为预置示例，不连接模型，不执行命令或修改你的文件。",
+    hint: "可交互的预置示例，不会连接模型或改动你的文件。",
     controls: {
       replay: "重播",
       skip: "快进",

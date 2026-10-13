@@ -20,13 +20,14 @@ for (const scenario of zh.demoScenarios) for (const step of scenario.steps) {
 export const demoFiles: Readonly<Record<string, string>> = Object.freeze(files);
 
 /** 用内存对象替代 Git、PTY、文件系统与原生浏览器视图。 */
-export function createInspectorDemo(emit: (channel: string, value: unknown) => void, onBrowserBounds?: (bounds?: DesktopBrowserBounds) => void): Partial<DesktopApi> {
+export function createInspectorDemo(emit: (channel: string, value: unknown) => void, onBrowserBounds?: (bounds?: DesktopBrowserBounds) => void, browserPage?: { title: string; url: string }): Partial<DesktopApi> {
   const normalize = (path: string) => path.replace(/^\/Biny\/Workspace\/?/, "").replace(/^\.\//, "");
   const references: LocalReferenceResult[] = Object.entries(files).map(([path, content]) => ({ kind: "file", uri: `biny://file/${encodeURIComponent(path)}`, label: path === "weekly-plan.md" ? "本周计划" : path, content, projectId: "demo" }));
-  const capturedPage: LocalReferenceResult = { kind: "snippet", uri: "biny://snippet/demo-page", label: "本周计划 · 示例", content: files["weekly-plan.md"]!, projectId: "demo" };
+  const capturedPage: LocalReferenceResult = { kind: "snippet", uri: "biny://snippet/demo-page", label: browserPage?.title ?? "本周计划 · 示例", content: browserPage ? "慢慢逛：河畔咖啡、巷口书屋。Biny 本地预置地点示例。" : files["weekly-plan.md"]!, projectId: "demo" };
   references.push(capturedPage);
   const git: DesktopGitStatus = { branch: "main", revision: "0", files: [{ path: "weekly-plan.md", status: " M" }, { path: "docs/weekly/本周进展.md", status: "??" }] };
-  const browser: DesktopBrowserSnapshot = { projectId: "demo", revision: 0, activeId: "demo-page-1", tabs: [{ id: "demo-page-1", title: "本周计划 · 示例", url: previewUrl, loading: false, canGoBack: false, canGoForward: false }] };
+  const page = browserPage ?? { title: "本周计划 · 示例", url: previewUrl };
+  const browser: DesktopBrowserSnapshot = { projectId: "demo", revision: 0, activeId: "demo-page-1", tabs: [{ id: "demo-page-1", ...page, loading: false, canGoBack: false, canGoForward: false }] };
   let tabIndex = 1;
   let previewRunning = false;
   const terminals = new Map<string, DesktopTerminalHandle>();
@@ -79,13 +80,14 @@ export function createInspectorDemo(emit: (channel: string, value: unknown) => v
     browserSnapshot: async () => structuredClone(browser),
     browserBounds: async (_id, tabId, bounds) => { onBrowserBounds?.(browser.activeId === tabId && browser.tabs.some(tab => tab.id === tabId && tab.url) ? bounds : undefined); },
     browserAction: async (_id, action) => {
-      if (action.type === "new") { const id = `demo-page-${++tabIndex}`; browser.tabs.push({ id, title: "本周计划 · 示例", url: action.url || previewUrl, loading: false, canGoBack: false, canGoForward: false }); browser.activeId = id; }
+      if (browserPage && (action.type === "navigate" || action.type === "new") && action.url && action.url !== browserPage.url) throw new Error("此演示仅浏览本地示例网页。请在 Biny 桌面端打开其他网址。");
+      if (action.type === "new") { const id = `demo-page-${++tabIndex}`; browser.tabs.push({ id, ...page, url: action.url || page.url, loading: false, canGoBack: false, canGoForward: false }); browser.activeId = id; }
       else if (action.type === "close") { browser.tabs = browser.tabs.filter(tab => tab.id !== action.tabId); if (browser.activeId === action.tabId) browser.activeId = browser.tabs[0]?.id; onBrowserBounds?.(); }
       else if (action.type === "select") browser.activeId = action.tabId;
       else if (action.type === "navigate") { const tab = browser.tabs.find(tab => tab.id === action.tabId); if (tab) tab.url = action.url; }
       return browserResult();
     },
-    browserInspect: async (_id, tabId, enabled) => { const tab = browser.tabs.find(tab => tab.id === tabId); if (tab) { tab.inspecting = enabled; tab.selection = enabled ? { tag: "h1", selector: "h1", text: "留出专注的时间。" } : undefined; } return browserResult(); },
+    browserInspect: async (_id, tabId, enabled) => { const tab = browser.tabs.find(tab => tab.id === tabId); if (tab) { tab.inspecting = enabled; tab.selection = enabled ? { tag: "h1", selector: "h1", text: browserPage ? "今天，想去哪儿坐坐？" : "留出专注的时间。" } : undefined; } return browserResult(); },
     browserCapture: async () => structuredClone(capturedPage),
     projectPreviewAvailability: async () => ({ available: true, kind: "static", entry: "index.html", entries: ["index.html"] }),
     projectPreviewStatus: async () => previewRunning ? { kind: "static", url: previewUrl } : { kind: "stopped" },

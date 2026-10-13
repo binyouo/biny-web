@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CLIENT_WIDTH, clientScale, hasTrustedSender, isDemoCommand, isDemoState } from "../src/demo/bridge.ts";
 
-test("演示只接受明确标记的开始、重播、跳过和状态查询命令", () => {
-  for (const command of ["start", "replay", "skip", "state"]) assert.equal(isDemoCommand({ source: "biny-website", command }), true);
+test("演示只接受明确标记的播放器命令", () => {
+  for (const command of ["start", "replay", "skip", "state", "pause", "resume"]) assert.equal(isDemoCommand({ source: "biny-website", command }), true);
   for (const value of [null, "replay", {}, { source: "other", command: "replay" }, { source: "biny-website", command: "send" }]) assert.equal(isDemoCommand(value), false);
 });
 
-test("演示只向父页面报告播放器的四种公开状态", () => {
-  for (const status of ["idle", "playing", "waiting", "done"]) assert.equal(isDemoState({ source: "biny-client-demo", status }), true);
+test("演示只向父页面报告播放器的公开状态", () => {
+  for (const status of ["idle", "playing", "paused", "waiting", "done"]) assert.equal(isDemoState({ source: "biny-client-demo", status }), true);
   for (const value of [null, {}, { source: "biny-client-demo", status: "ready" }, { source: "other", status: "playing" }]) assert.equal(isDemoState(value), false);
 });
 

@@ -1,16 +1,16 @@
 export const CLIENT_WIDTH = 1353;
 export const CLIENT_HEIGHT = 828;
-export type DemoCommand = { source: "biny-website"; command: "start" | "replay" | "skip" | "state" };
-export type DemoState = { source: "biny-client-demo"; status: "idle" | "playing" | "waiting" | "done" };
+export type DemoCommand = { source: "biny-website"; command: "start" | "replay" | "skip" | "state" | "pause" | "resume" };
+export type DemoState = { source: "biny-client-demo"; status: "idle" | "playing" | "paused" | "waiting" | "done" };
 
 export function isDemoCommand(value: unknown): value is DemoCommand {
   return typeof value === "object" && value !== null && "source" in value && value.source === "biny-website"
-    && "command" in value && typeof value.command === "string" && ["start", "replay", "skip", "state"].includes(value.command);
+    && "command" in value && typeof value.command === "string" && ["start", "replay", "skip", "state", "pause", "resume"].includes(value.command);
 }
 
 export function isDemoState(value: unknown): value is DemoState {
   return typeof value === "object" && value !== null && "source" in value && value.source === "biny-client-demo"
-    && "status" in value && typeof value.status === "string" && ["idle", "playing", "waiting", "done"].includes(value.status);
+    && "status" in value && typeof value.status === "string" && ["idle", "playing", "paused", "waiting", "done"].includes(value.status);
 }
 
 export function hasTrustedSender(event: { source: unknown; origin: string }, sender: unknown, origin: string): boolean {

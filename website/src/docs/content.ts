@@ -240,8 +240,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         id: "what-to-remember",
         title: "让有用的信息留下来",
         blocks: [
-          { type: "paragraph", text: "Biny 结合会话历史、项目上下文、临时与长期记忆，为后续工作提供线索。适合保存的信息包括项目约定、已确认的决策，以及你希望持续使用的偏好。" },
-          { type: "paragraph", text: "记忆保存在本地数据库，并通过语义检索查找相关内容。会话记录和长期记忆承担不同职责；保存的线索仍需要结合当前项目事实判断。" }
+          { type: "paragraph", text: "Biny 会从日常交流中留下有用的信息，例如你的表达习惯、生活偏好、长期计划和已确认的约定。长期记忆跨对话使用：开启一段新对话后，仍可以召回相关内容。" },
+          { type: "paragraph", text: "记忆保存在本地数据库，并通过语义检索查找相关内容。会话记录和长期记忆承担不同职责；保存的线索仍需要结合当前情况判断。" }
         ]
       },
       {
@@ -257,16 +257,69 @@ export const DOC_PAGES: readonly DocPage[] = [
         id: "maintenance",
         title: "记忆整理",
         blocks: [
-          { type: "paragraph", text: "Sleep 整理周期可以归档过期记忆、合并重复信息。手动维护前，可以先预览计划，查看会影响哪些内容。" },
+          { type: "paragraph", text: "Sleep 是记忆的整理周期：合并重复信息、归档过期的临时记忆，让后续检索更容易找到有用的内容。你可以在 Desktop 的记忆设置中启用每日整理、设置运行时间，或手动运行。错过计划时间后，会在下次启动时补跑。" },
+          { type: "paragraph", text: "手动维护前，可以先预览计划，查看会影响哪些内容。归档记忆在保留期限内可以恢复，也可以查看近期运行记录。" },
           { type: "code", lines: ["biny memory sleep --preview", "biny memory sleep --help"] }
         ]
       },
       {
         id: "activity",
-        title: "桌面活动线索",
+        title: "Computer History：桌面活动线索",
         blocks: [
-          { type: "paragraph", text: "macOS Desktop 的 Activity Recorder 可以记录桌面活动和 OCR 线索，用于回看、检索和生成活动摘要。你可以在 Desktop 设置中暂停记录。" },
+          { type: "paragraph", text: "Computer History 面向整台 Mac 上的活动，全局记录跨应用的线索，与项目工作区无关。你在浏览器看过的内容、在备忘录写下的想法、在日历安排的事情，都可以成为找回近期经历的上下文。" },
+          { type: "paragraph", text: "你可以问「午饭前我做到哪了？」「昨天看到的那篇文章在哪里？」「今天都做了哪些事？」。Biny 通过时间线和活动摘要找回相关线索，帮你接上中断前的思路。" },
+          { type: "paragraph", text: "在 macOS Desktop 设置中开启 Computer History 并授予所需系统权限后，后台通过周期截屏和本地 OCR 整理桌面活动，原始截图留在本机。" },
+          { type: "paragraph", text: "你可以在 Desktop 的 Computer History 设置中暂停记录、排除不想记录的应用，并分别控制 OCR 和输入活动监听。输入监听只记录点击与键盘活动类型，不记录键值。" },
           { type: "note", title: "线索需要核实", text: "历史活动和记忆描述的是先前观察到的内容。文件、配置和任务状态发生变化后，应重新读取当前事实。" }
+        ]
+      }
+    ]
+  },
+  {
+    slug: "rich-content",
+    title: "丰富的内容渲染",
+    description: "让回答里的图表、信息图、公式和音乐，各自以合适的形式呈现。",
+    group: "日常使用",
+    keywords: ["Markdown", "渲染", "Mermaid", "Infographic", "LaTeX", "KaTeX", "Strudel", "Tidal", "音乐", "表格", "图片", "音频", "视频"],
+    sections: [
+      {
+        id: "diagrams",
+        title: "Mermaid：把关系画出来",
+        blocks: [
+          { type: "paragraph", text: "回答中的 mermaid 代码块会渲染成图表。流程、时序和关系可以直接在对话中查看，支持缩放、拖动和复制图表源码。" },
+          { type: "code", lines: ["```mermaid", "graph LR", "  A[一个念头] --> B[试一试]", "  B --> C[慢慢成形]", "```"] }
+        ]
+      },
+      {
+        id: "infographic",
+        title: "Infographic：让信息有层次",
+        blocks: [
+          { type: "paragraph", text: "infographic 代码块将结构化内容渲染为信息图，适合列表、步骤、对比与层级表达。可以放大查看、复制源码或 PNG，并下载 SVG。" },
+          { type: "paragraph", text: "例如，让 Biny 把一份旅行安排整理成步骤信息图，或者把几个选项排成便于比较的结构。" }
+        ]
+      },
+      {
+        id: "math-and-tables",
+        title: "公式与表格：看得清，也带得走",
+        blocks: [
+          { type: "paragraph", text: "LaTeX 数学表达式由 KaTeX 渲染，支持行内公式和独立公式。Markdown 表格支持复制，以及下载为 CSV 或 Markdown；宽表格可以横向滚动。" },
+          { type: "code", lines: ["$$", "\\mathbb{E}[X] = \\sum_{i=1}^{n} x_i P(x_i)", "$$"] }
+        ]
+      },
+      {
+        id: "music",
+        title: "Strudel / Tidal：可以播放的音乐代码块",
+        blocks: [
+          { type: "paragraph", text: "标记为 strudel 或 tidal 的代码块会显示为音乐片段，使用 Strudel 播放器运行兼容的模式代码。可以在对话中查看、复制代码，并主动点击播放、停止；进入页面不会自动发声。" },
+          { type: "code", lines: ["```strudel", "note(\"c4 eb4 g4 bb4\")", "  .s(\"triangle\")", "  .slow(2)", "  .gain(0.12)", "```"] },
+          { type: "paragraph", text: "你可以从「给我一段适合雨天听的旋律」开始，再继续调整音符和节奏。主页复用客户端播放器，可以直接试听。当前播放器支持内置合成器，不加载外部采样。" }
+        ]
+      },
+      {
+        id: "media",
+        title: "图片、音频与视频",
+        blocks: [
+          { type: "paragraph", text: "Markdown 图片可直接展示。受支持的 HTML audio / video 内容会显示媒体播放器，是否可播放取决于资源是否可访问以及客户端支持的格式；普通媒体网址仍显示为链接。" }
         ]
       }
     ]
@@ -299,9 +352,10 @@ export const DOC_PAGES: readonly DocPage[] = [
       },
       {
         id: "desktop-tools",
-        title: "桌面能力",
+        title: "Computer Use：让 Biny 操作电脑",
         blocks: [
-          { type: "paragraph", text: "macOS Desktop 还可以选用 Computer Use，观察桌面并操作指定窗口。这些能力需要相应的系统权限和配置，使用前应确认当前目标窗口。" }
+          { type: "paragraph", text: "在 macOS Desktop 中，Biny 可以观察应用窗口，输入文字、点击和滚动。你可以让它查找网页内容，或在应用里完成一连串操作。使用前，在 Computer Use 设置中完成系统权限和目标应用配置。" },
+          { type: "paragraph", text: "操作过程中可以查看画面、暂停或接管。恢复后，Biny 会重新观察窗口，再继续操作。首页演示复用 Biny 的聊天和浏览器界面，场景与网页为本地预置内容。" }
         ]
       },
       {

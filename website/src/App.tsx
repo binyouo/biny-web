@@ -36,10 +36,10 @@ function PageEffects() {
     if (/^\/[^/]+\/docs(?:\/|$)/.test(pathname)) return;
     const downloading = pathname.endsWith("/download");
     const home = pathname === "/zh" || pathname === "/zh/";
-    document.title = downloading ? "下载 Biny" : home ? "Biny · 和你的项目一起工作" : "页面未找到 · Biny";
+    document.title = downloading ? "下载 Biny" : home ? "Biny · 一个记得你的 AI 伙伴" : "页面未找到 · Biny";
     document.querySelector('meta[name="description"]')?.setAttribute("content", downloading
       ? "安装 Biny 终端工具，查看 macOS 桌面安装包，或从源码运行。"
-      : "Biny 是本地优先、记忆优先的开发协作 Agent。连接自己的模型，在 macOS 桌面端或终端里处理项目任务。");
+      : "Biny 是在你电脑上的 AI 伙伴。记住聊过的偏好，找回看过的内容，用你喜欢的模型聊天、写作和做事。支持 macOS 桌面端与终端。");
   }, [pathname, hash]);
   return null;
 }

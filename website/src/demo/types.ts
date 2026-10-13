@@ -24,6 +24,7 @@ export interface DemoPermission {
 
 export interface DemoToolStep {
   kind: "tool";
+  args?: Record<string, unknown>;
   /** 工具的展示名，与产品里 toolLabel() 的映射一致：读取文件、搜索内容、Bash…… */
   name: string;
   /** 等宽字体的摘要行，通常是路径或命令。 */

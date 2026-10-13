@@ -37,6 +37,10 @@
     <changefreq>monthly</changefreq>
   </url>
   <url>
+    <loc>https://biny.online/zh/docs/rich-content</loc>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
     <loc>https://biny.online/zh/docs/tools</loc>
     <changefreq>monthly</changefreq>
   </url>
