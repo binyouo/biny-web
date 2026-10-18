@@ -221,7 +221,18 @@ export function BinyWindow({ variant }: { variant?: "computer" }) {
           {!computer && <button disabled={!ready || status === "done"} aria-label={t.demo.controls.skip} title={t.demo.controls.skip} onClick={() => send("skip")} type="button"><Icon name="chevronRight" size={13} /></button>}
           {!computer && <button aria-expanded={expanded} aria-label={expanded ? "收起演示" : "放大查看"} title={expanded ? "收起演示" : "放大查看"} onClick={() => setExpanded((value) => !value)} ref={expandButtonRef} type="button"><Icon name={expanded ? "close" : "panelRight"} size={13} /></button>}
         </div>
-        <div className="client-demo-stage" ref={stageRef} role={computer && ready ? "img" : undefined} aria-label={computer && ready ? "Biny 在浏览器中搜索咖啡馆并打开结果的预置动画" : undefined} style={{ aspectRatio: `${width} / ${height}` }}>
+        <div
+          className="client-demo-stage"
+          ref={stageRef}
+          role={computer && ready ? "img" : undefined}
+          aria-label={computer && ready ? "Biny 在浏览器中搜索咖啡馆并打开结果的预置动画" : undefined}
+          /* 高度必须严格等于「缩放后的画布高度」。同时写 aspectRatio 时浏览器会以
+             宽高比为准（1080×558），把实际 659px 的画面裁掉一截；所以只在未测量到
+             缩放比例时才退回宽高比。 */
+          style={scale
+            ? { height: `${height * scale}px` }
+            : { aspectRatio: `${width} / ${height}` }}
+        >
           <iframe
             className="client-demo-frame"
             inert={computer || !ready}

@@ -28,7 +28,8 @@ pnpm preview
 | 路径 | 内容 |
 | --- | --- |
 | `/zh` | 产品首屏、桌面端演示、能力分区、模型服务与桌面／终端入口 |
-| `/zh/download` | 实时桌面发布信息、npm 安装与源码启动 |
+| `/zh#download` | 首页内的桌面发布信息、npm 安装与源码启动 |
+| `/zh/download`、`/download` | 兼容旧地址，转到首页下载区，保留查询参数与锚点 |
 | `/zh/docs` | 中文文档概览 |
 | `/zh/docs/<slug>` | 安装、快速开始、会话、Provider、记忆、工具、扩展与任务指南 |
 | `/client-demo.html` | 可直接打开的预置交互演示 |

@@ -90,7 +90,7 @@ export const DOC_PAGES: readonly DocPage[] = [
           { type: "paragraph", text: "Biny 的桌面端面向 macOS。从源码安装依赖后，在仓库目录运行以下命令。" },
           { type: "code", lines: ["pnpm desktop:dev"] },
           { type: "paragraph", text: "下载页面会读取公开发布信息。如果读取失败，可以前往发布页查看可用安装包。请以当前发布的产物为准。" },
-          { type: "link", title: "查看下载与发布入口", href: "/zh/download" }
+          { type: "link", title: "查看下载与发布入口", href: "/zh#download" }
         ]
       },
       {

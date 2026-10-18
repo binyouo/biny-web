@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseRelease } from "../src/lib/releases.ts";
+import { parseRelease, platformAssets } from "../src/lib/releases.ts";
 
 const asset = (name: string) => ({
   name,
@@ -72,4 +72,23 @@ test("release discovery skips drafts and releases without installers; an empty l
   assert.equal(release.version, "1");
   assert.deepEqual(parseRelease([]), { version: "", publishedAt: null, assets: [] });
   assert.throws(() => parseRelease([null]), /release/i);
+});
+
+
+test("desktop downloads classify real platform formats without inventing architectures", () => {
+  const release = parseRelease({ tag_name: "v1", assets: [
+    asset("Biny-1-x64.exe"), asset("Biny-1-arm64.msi"),
+    asset("Biny-1-x86_64.AppImage"), asset("Biny_1_amd64.deb"), asset("Biny-1-aarch64.rpm"),
+    asset("Biny-1.exe"), asset("Biny-1-universal.deb"), asset("Biny-1-x64.AppImage.blockmap")
+  ] });
+  assert.deepEqual(platformAssets(release.assets, "windows").map(({ arch, kind }) => [arch, kind]), [["arm64", "msi"], ["x64", "exe"]]);
+  assert.deepEqual(platformAssets(release.assets, "linux").map(({ arch, kind }) => [arch, kind]), [["arm64", "rpm"], ["x64", "AppImage"], ["x64", "deb"]]);
+  assert.deepEqual(platformAssets(release.assets, "macos"), []);
+});
+
+test("macOS presents one installer per architecture and keeps ZIP when no DMG exists", () => {
+  const release = parseRelease({ tag_name: "v1", assets: [
+    asset("Biny-1-arm64.zip"), asset("Biny-1-arm64.dmg"), asset("Biny-1-x64.zip")
+  ] });
+  assert.deepEqual(platformAssets(release.assets, "macos").map(asset => asset.name), ["Biny-1-arm64.dmg", "Biny-1-x64.zip"]);
 });

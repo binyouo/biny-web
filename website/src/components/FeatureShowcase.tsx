@@ -4,6 +4,7 @@ import { Icon } from "./Icon";
 import type { IconName } from "./Icon";
 import { useI18n } from "../i18n";
 import { RenderChatPreview } from "./RenderChatPreview";
+import { Reveal as ScrollReveal } from "./interaction";
 import { BinyWindow } from "../demo/BinyWindow";
 import { renderModes } from "../demo/renderSamples";
 import "./feature-showcase.css";
@@ -103,7 +104,7 @@ function FeatureCard({ id, label, title, summary }: {
     return () => window.clearTimeout(timer);
   }, [phase, phaseDuration, playing, visible, pageVisible, replay, stepCount]);
 
-  return <article className={`feature-card feature-${id}`} style={{ "--phase-duration": `${phaseDuration}ms` } as CSSProperties} data-playing={playing && visible && pageVisible} ref={card} aria-labelledby={`feature-${id}-title`}>
+  return <article className={`feature-card feature-${id}`} style={{ "--phase-duration": `${phaseDuration}ms` } as CSSProperties} data-playing={playing && visible && pageVisible} data-reveal="" data-revealed="false" ref={card} aria-labelledby={`feature-${id}-title`}>
     <div className="feature-card-copy">
       <h3 id={`feature-${id}-title`}>{title}</h3>
     </div>
@@ -131,10 +132,11 @@ function FeatureCard({ id, label, title, summary }: {
 
 export function FeatureShowcase() {
   const { t } = useI18n();
+  // 四张卡等分两列。Computer Use 的演示是 1000×690 的固定画布，
+  // 放进横幅会把卡片撑到 800px 以上；等分宽度下按比例缩放正好完整显示。
   return <div className="home-feature-grid">
-    <FeatureCard {...t.home.features[0]} />
     <ComputerCard />
-    {t.home.features.slice(1).map(feature => <FeatureCard key={feature.id} {...feature} />)}
+    {t.home.features.map(feature => <FeatureCard key={feature.id} {...feature} />)}
   </div>;
 }
 
@@ -148,23 +150,25 @@ function ComputerCard() {
     if (card.current) observer.observe(card.current);
     return () => observer.disconnect();
   }, []);
-  return <article className="feature-card feature-computer" ref={card} aria-labelledby="feature-computer-title">
+  return <article className="feature-card feature-computer" data-reveal="" data-revealed="false" ref={card} aria-labelledby="feature-computer-title">
     <div className="feature-card-copy">
       <h3 id="feature-computer-title">让它操作，随时接手。</h3>
     </div>
     <div className="feature-computer-player">
-      {visited ? <BinyWindow variant="computer" /> : <div className="feature-computer-placeholder" />}
+      <div className="feature-computer-crop">
+        {visited ? <BinyWindow variant="computer" /> : <div className="feature-computer-placeholder" />}
+      </div>
     </div>
   </article>;
 }
 
 export function ProviderStrip() {
   const { t } = useI18n();
-  return <div className="home-models" id="providers">
-    <div className="home-models-heading"><span>模型随你选。</span></div>
+  return <ScrollReveal className="home-models" id="providers">
+    <div className="home-models-heading"><span>{t.home.providersTitle}</span></div>
     <ul aria-label="支持的模型服务和接口">{t.home.providers.map(name => <li key={name} data-brand={name.toLowerCase()}>
-      {name === "兼容 API" ? <Icon name="plug" size={23} /> : <span className="home-provider-mark" style={{ maskImage: `url(/providers/${name.toLowerCase()}.svg)` }} aria-hidden="true" />}
+      {name === "兼容 API" ? <Icon name="plug" size={17} /> : <span className="home-provider-mark" style={{ maskImage: `url(/providers/${name.toLowerCase()}.svg)` }} aria-hidden="true" />}
       <span>{name}</span>
     </li>)}</ul>
-  </div>;
+  </ScrollReveal>;
 }
