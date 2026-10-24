@@ -17,6 +17,11 @@ export function hasTrustedSender(event: { source: unknown; origin: string }, sen
   return sender !== null && sender !== undefined && event.source === sender && event.origin === origin;
 }
 
+/**
+ * 演示画布按容器宽度等比缩小，最大 1:1。
+ * 不放大是刻意的：画布里的字号、侧栏宽度都按 1353×828 排版，
+ * 放大会让它们偏离桌面端的真实比例。容器比画布宽时，由外层限制宽度。
+ */
 export function clientScale(width: number): number {
   return Number.isFinite(width) && width > 0 ? Math.min(1, width / CLIENT_WIDTH) : 0;
 }

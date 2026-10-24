@@ -6,6 +6,8 @@ function blockText(block: DocBlock): string {
     case "list": return block.items.join(" ");
     case "code": return block.lines.join(" ");
     case "note": return `${block.title} ${block.text}`;
+    case "table": return [...block.head, ...block.rows.flat()].join(" ");
+    case "preview": return block.mode;
     case "link": return block.title;
   }
 }

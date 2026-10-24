@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CodeBlock } from "../components/CodeBlock";
+import { DocsPreview } from "../components/DocsPreview";
 import { Icon } from "../components/Icon";
 import { DOC_GROUPS, DOC_PAGES, getDocPage, type DocBlock, type DocPage } from "../docs/content.ts";
 import { searchDocs } from "../docs/search.ts";
@@ -42,6 +43,17 @@ function ArticleBlock({ block }: { block: DocBlock }) {
       return <div className="docs-code"><CodeBlock lines={block.lines} /></div>;
     case "note":
       return <aside className="docs-note"><p className="docs-note-title">{block.title}</p><p>{block.text}</p></aside>;
+    case "table":
+      return (
+        <div className="docs-table-wrap">
+          <table className="docs-table">
+            <thead><tr>{block.head.map((cell) => <th key={cell}>{cell}</th>)}</tr></thead>
+            <tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+    case "preview":
+      return <DocsPreview mode={block.mode} />;
     case "link":
       return <p className="docs-article-link"><Link to={block.href}>{block.title}<Icon name="arrowRight" size={14} /></Link></p>;
   }
@@ -51,12 +63,11 @@ function DocsOverview() {
   return (
     <article className="docs-article docs-overview">
       <header>
-        <p className="docs-kicker">Biny 使用文档</p>
         <h1>从这里开始</h1>
-        <p className="docs-lead">完成安装与模型配置，在你的项目里开始工作。遇到问题时，也可以从这里找到对应的使用说明。</p>
+        <p className="docs-lead">从安装、配模型到日常使用，按你正在做的事找对应章节。遇到具体问题时，也可以直接搜。</p>
       </header>
       <Link className="docs-start-link" to="/zh/docs/quick-start">
-        <span><strong>开始第一次对话</strong><span>配置模型 · 打开项目 · 输入任务</span></span>
+        <span><strong>完成第一次对话</strong><span>配好模型 → 打开项目 → 交一件事</span></span>
         <Icon name="arrowRight" size={20} />
       </Link>
       {DOC_GROUPS.map((group, index) => (
@@ -84,7 +95,6 @@ function DocsArticle({ page }: { page: DocPage }) {
   return (
     <article className="docs-article">
       <header>
-        <p className="docs-kicker">{page.group}</p>
         <h1>{page.title}</h1>
         <p className="docs-lead">{page.description}</p>
       </header>
@@ -153,7 +163,6 @@ function DocsLayout({ slug, page }: { slug: string; page: DocPage | undefined })
           <div className="docs-content">
             {hasQuery ? (
               <section className="docs-search-results" aria-label="文档搜索结果">
-                <p className="docs-kicker">文档搜索</p>
                 <h1>搜索“{query.trim()}”</h1>
                 <p className="docs-results-count" role="status">找到 {results.length} 篇文档{results.length > 0 ? "，按 Enter 打开第一篇。" : "。试试更简短的关键词，或浏览左侧目录。"}</p>
                 {results.length > 0 ? <ul>{results.map((result) => (
@@ -162,7 +171,6 @@ function DocsLayout({ slug, page }: { slug: string; page: DocPage | undefined })
               </section>
             ) : isOverview ? <DocsOverview /> : page ? <DocsArticle page={page} /> : (
               <section className="docs-not-found">
-                <p className="docs-kicker">404</p>
                 <h1>找不到这篇文档</h1>
                 <p>这个地址还没有对应的文章。你可以搜索文档，或从文档概览继续浏览。</p>
                 <Link className="docs-clear-search" to="/zh/docs">返回文档概览<Icon name="arrowRight" size={14} /></Link>

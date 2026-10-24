@@ -11,7 +11,7 @@ test("文档页支持已知路径，并拒绝未知或嵌套路径", () => {
 });
 
 test("文档目录中每个页面与章节都有独立的可跳转标识", () => {
-  assert.ok(DOC_PAGES.length >= 8);
+  assert.ok(DOC_PAGES.length >= 20);
   assert.equal(new Set(DOC_PAGES.map((page) => page.slug)).size, DOC_PAGES.length);
   for (const page of DOC_PAGES) {
     assert.ok(page.sections.length > 0);
@@ -21,6 +21,27 @@ test("文档目录中每个页面与章节都有独立的可跳转标识", () =>
 
 test("按文章标题查找文档", () => {
   assert.equal(searchDocs("快速开始")[0]?.slug, "quick-start");
+});
+
+test("参考结构对齐 Pi 文档，并补充 Biny 独有能力", () => {
+  for (const slug of ["how-biny-works", "usage", "models", "configuration", "skills", "cli", "settings", "environment-variables", "slash-commands", "desktop", "cli-integration"]) {
+    assert.ok(getDocPage(slug), `缺少文档页：${slug}`);
+  }
+  const computerHistory = getDocPage("memory")?.sections.find((section) => section.id === "activity");
+  assert.ok(computerHistory, "记忆页应包含 Computer History 小节");
+});
+
+test("不为 Biny 没有的功能开独立标签", () => {
+  for (const slug of ["sdk", "json", "rpc"]) {
+    assert.equal(getDocPage(slug), undefined, `不应存在文档页：${slug}`);
+  }
+});
+
+test("丰富内容渲染页内置真实渲染示例", () => {
+  const modes = getDocPage("rich-content")
+    ?.sections.flatMap((section) => section.blocks)
+    .flatMap((block) => (block.type === "preview" ? [block.mode] : []));
+  assert.deepEqual([...(modes ?? [])].sort(), ["infographic", "math", "mermaid", "music", "table"]);
 });
 
 test("按关键词和正文中的配置项查找文档，不区分大小写", () => {
