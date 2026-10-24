@@ -49,6 +49,9 @@ importers:
       '@fontsource-variable/noto-sans-sc':
         specifier: 5.3.0
         version: 5.3.0
+      '@fontsource/silkscreen':
+        specifier: 5.3.0
+        version: 5.3.0
       '@huggingface/transformers':
         specifier: 4.2.0
         version: 4.2.0
@@ -600,6 +603,9 @@ packages:
 
   '@fontsource-variable/noto-sans-sc@5.3.0':
     resolution: {integrity: sha512-lNar1dF7Ik/lHNPo/7JWG0TolXY29LtsqYgMvEysooZ5bsO9uH4shJmRrwyJ3PjyTPljhpMJEK0jDuLSU4vJ1w==}
+
+  '@fontsource/silkscreen@5.3.0':
+    resolution: {integrity: sha512-M1NQ3LQH0LFNvyFPd/piHEGMImPPtpLglNnLC6Vdcq9kL0jNIOtTQmksAWCc4enbDnw1OnIpZtjNEfRqYm/QmA==}
 
   '@formatjs/fast-memoize@3.1.7':
     resolution: {integrity: sha512-zXfhLpvA6T7+efdt9JLbBwZ00tT7NsBMDVnDu8rpHeNNv8KfRZAMo2gkG0k9lK/Nzc//3kJ9pImsfuJxk3KhUA==}
@@ -3594,6 +3600,8 @@ snapshots:
   '@fontsource-variable/inter@5.3.0': {}
 
   '@fontsource-variable/noto-sans-sc@5.3.0': {}
+
+  '@fontsource/silkscreen@5.3.0': {}
 
   '@formatjs/fast-memoize@3.1.7': {}
 
