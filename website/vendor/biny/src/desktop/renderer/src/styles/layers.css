@@ -30,3 +30,5 @@
 @import "./thread-brief.css" layer(desktop);
 @import "./appearance.css" layer(desktop);
 @import "./icon-buttons.css" layer(icon-controls);
+
+@import "./app-icon.css" layer(desktop);

@@ -153,8 +153,9 @@
     color: var(--ink);
   }
 
-  /* 使用图标资源自带的透明轮廓。 */
+  /* 网页头像使用无 Dock 留白的原稿，圆角与应用内统一。 */
   .app-icon {
+    border-radius: 22.5%;
     display: block;
     flex: 0 0 auto;
     object-fit: cover;
@@ -330,7 +331,7 @@
 .site-header[data-home="false"], .site-header[data-scrolled="true"] { border-bottom-color: var(--line); background: var(--glass); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
 .site-nav { max-width: 1320px; display: flex; height: var(--nav-height); align-items: center; gap: 50px; }
 .site-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
-.site-brand .app-icon { border-radius: 8px; transition: transform .4s var(--ease-out-quint); }
+.site-brand .app-icon { border-radius: 22.5%; transition: transform .4s var(--ease-out-quint); }
 .site-brand:hover .app-icon { transform: rotate(-8deg); }
 .site-brand > span { font-family: var(--site-font-sans); font-size: 24px; font-weight: 600; letter-spacing: -.07em; }
 .site-nav-links { display: flex; align-items: center; gap: 26px; }
