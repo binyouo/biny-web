@@ -39,8 +39,8 @@ function PageEffects() {
     document.querySelector('link[rel="canonical"]')?.setAttribute("href", `https://biny.online${pathname}`);
     if (/^\/[^/]+\/docs(?:\/|$)/.test(pathname)) return;
     const home = pathname === "/zh" || pathname === "/zh/";
-    document.title = home ? "Biny · 一句话，一个想法，剩下的交给它" : "页面未找到 · Biny";
-    document.querySelector('meta[name="description"]')?.setAttribute("content", "Biny 在你自己的电脑上工作。看过的网页、聊定的偏好、跑过的命令都留在本机，下一次开口时接得上。支持 macOS 桌面端与终端。");
+    document.title = home ? "Biny · 一只住在你电脑里的 AI 伙伴" : "页面未找到 · Biny";
+    document.querySelector('meta[name="description"]')?.setAttribute("content", "Biny 是住在你电脑里的 AI 伙伴。聊过的事、看过的网页、说好的规矩都记在本机，不用账号。支持 macOS 桌面端与终端。");
   }, [pathname]);
   return null;
 }
@@ -63,7 +63,7 @@ function LocaleLayout() {
   if (!isLocale(locale)) return <Navigate replace to={`/${DEFAULT_LOCALE}`} />;
   return (
     <I18nContext.Provider value={{ locale, t: locales[locale] }}>
-      <div className="site-backdrop" aria-hidden="true"><span /><span /></div>
+      <div className="site-backdrop" aria-hidden="true" />
       <SiteNav />
       <PageBoundary key={pathname}>
         <Suspense fallback={<main className="site-loading" id="main-content" role="status">正在加载页面…</main>}>

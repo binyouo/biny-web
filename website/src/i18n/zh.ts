@@ -322,15 +322,12 @@ export const zh = {
     localeLabel: "简体中文"
   },
   home: {
-    title: "一句话，一个想法，\n剩下的交给 Biny。",
-    intro: "Biny 在你自己的电脑上工作。看过的网页、聊定的偏好、跑过的命令，都留在本机，下一次开口时接得上。",
-    featuresTitle: "越用，越接近你的默契。",
-    featuresIntro: "从找回看过的网页，到记住聊定的偏好，再到直接操作电脑。让每一次对话，都接着上次往前走。",
-    workspaceTitle: "同一个 Biny，\n两个入口。",
-    workspaceIntro: "桌面端负责看与聊，终端负责改与跑。会话和记忆在本机共享，换入口不必重讲一遍。",
-    startTitle: "把下一件事，交给它。",
-    startIntro: "装好、连上模型，从一件具体的小事开始。",
-    providersTitle: "接哪家模型，你说了算。",
+    title: "你好，我是 Biny。",
+    intro: "一只住在你电脑里的 AI 伙伴。聊过的事都记在本机，不用账号。",
+    featuresTitle: "它记得什么",
+    workspaceTitle: "它住在哪",
+    startTitle: "它也有心情",
+    providersTitle: "脑子可以换，家不搬。",
     features: [
       { id: "history" as const, label: "Computer History", title: "看过的，问一句找回。", summary: "先看过一家京都旅馆，再问「刚才那家旅馆叫什么？」。Biny 找回名字和网页线索。记录覆盖不同应用，不限于某个工作区。" },
       { id: "memory" as const, label: "Memory & Sleep", title: "聊定的偏好，不用再说一遍。", summary: "示例：从不同对话中记住喜欢安静小旅馆的偏好，Sleep 合并重复记忆，几天后聊起新的旅行时再想起。" },

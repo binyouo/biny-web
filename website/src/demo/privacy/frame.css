@@ -1,0 +1,63 @@
+:root {
+  color-scheme: dark;
+  --font-scale: 1.166667;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text: #ededed; --text-secondary: #b5b5b5; --text-tertiary: #858585;
+  --surface: #191919; --surface-raised: #232323; --surface-hover: #2d2d2d;
+  --border-subtle: #333; --border-strong: #464646;
+  --segment-track: #303030; --segment-thumb: #232323; --accent: #62a7ee;
+  --shadow: #00000016; --shadow-heavy: #00000050;
+  --st-card: var(--surface-raised); --st-button-font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px; color: var(--text); background: var(--surface);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --text: #252525; --text-secondary: #6b6b6b; --text-tertiary: #888;
+  --surface: #fafafa; --surface-raised: #f1f1f1; --surface-hover: #e7e7e7;
+  --border-subtle: #dedede; --border-strong: #c8c8c8;
+  --segment-track: #e4e4e4; --segment-thumb: #f9f9f9; --accent: #2876be;
+}
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { overscroll-behavior: none; }
+button, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .45; }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.privacy-preview { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.preview-heading { display: flex; align-items: center; gap: 12px; flex: 0 0 58px; padding: 0 24px; }
+.preview-heading h1 { margin: 0 auto 0 0; font-size: 22px; font-weight: 650; letter-spacing: -.5px; }
+.preview-heading > span { color: var(--text-tertiary); font-size: 11px; white-space: nowrap; }
+.preview-heading .settings-action { font-size: 12px; padding-inline: 0; }
+.preview-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; scrollbar-gutter: stable; padding: 0 22px 24px 24px; }
+.privacy-records { min-height: 100%; padding: 0 22px 20px; background: var(--surface-raised); }
+.settings-action { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 12px; border: 1px solid transparent; border-radius: 6px; background: var(--surface-hover); color: var(--text); font-weight: 500; }
+.settings-text-action { color: var(--text-secondary); background: transparent; }
+.settings-text-action:hover { color: var(--text); background: var(--surface-hover); }
+.settings-field { min-height: 36px; }
+.settings-choice-tabs { display: inline-flex; max-width: 100%; align-items: stretch; flex-wrap: wrap; gap: 2px; padding: 3px; border: 0; border-radius: 999px; background: var(--segment-track); }
+.settings-choice-tabs > button { display: inline-flex; min-height: 32px; height: auto; align-items: center; justify-content: center; gap: 6px; padding: 4px 12px; border: 1px solid transparent; border-radius: 999px; color: var(--text-secondary); background: transparent; box-shadow: none; font-size: 14px; font-weight: 400; line-height: 1.35; }
+.settings-choice-tabs > button[aria-pressed="true"] { color: var(--text); background: var(--st-card); border-color: var(--border-subtle); box-shadow: 0 1px 2px var(--shadow); font-weight: 500; }
+.settings-choice-tabs > button:hover { color: var(--text); }
+.privacy-overview { padding: 0 22px 24px; border: 0; border-radius: 0; background: var(--st-card); box-shadow: none; }
+.privacy-toolbar h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.privacy-overview .privacy-summary { margin: 16px 0 12px; }
+.privacy-flow { margin-top: 22px; }
+.privacy-flow figcaption { margin-top: 18px; }
+.privacy-filters { gap: 10px; }
+.privacy-filters .privacy-actions { gap: 6px; }
+.privacy-request-detail { padding-top: 14px; }
+.app-icon, .app-icon-art { display: inline-block; position: relative; }
+.app-icon-art > img { display: block; }
+.app-icon-closed { position: absolute; inset: 0; opacity: 0; }
+@media (max-width: 480px) {
+  .preview-heading { padding-inline: 14px; gap: 8px; }
+  .preview-heading h1 { font-size: 20px; }
+  .preview-scroll { padding-inline: 10px; }
+  .privacy-records { padding-inline: 10px; }
+  .privacy-overview { padding-inline: 6px; }
+  .privacy-filters select { max-width: 48%; }
+  .privacy-filters .privacy-actions { width: 100%; justify-content: flex-end; }
+}

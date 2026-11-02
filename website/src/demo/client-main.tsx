@@ -1,3 +1,4 @@
+import { containFrameFocus } from "./frameFocus";
 import { demoPreviewHtml } from "./inspectorDemo";
 import { computerScenario, computerPage, computerPageHtml } from "./computerScenario";
 import { placeBrowserSurface } from "./browserSurface";
@@ -11,6 +12,9 @@ import { ThreadBriefProvider } from "../../vendor/biny/src/desktop/renderer/src/
 import "../../vendor/biny/src/desktop/renderer/src/styles/layers.css";
 import "katex/dist/katex.min.css";
 import "./client-adapter.css";
+
+// Desktop focuses the composer when sessions load; an embed must not pull the host page along.
+if (window.parent !== window) containFrameFocus(HTMLElement);
 
 const computer = new URLSearchParams(window.location.search).get("scene") === "computer";
 let ready = false;
@@ -71,6 +75,10 @@ window.addEventListener("pagehide", dispose, { once: true });
 
 // iframe 隔离官网样式，演示入口禁用需要真实配置服务的设置面板。
 document.documentElement.dataset.platform = "darwin";
+// 会话右键菜单里的导出/删除/归档等大多没接 adapter，屏蔽右键避免触发报错。
+document.addEventListener("contextmenu", (event) => {
+  if ((event.target as Element).closest(".biny-sidebar-session-item, .biny-project-row")) event.preventDefault();
+}, true);
 if (computer) document.documentElement.dataset.demo = "computer";
 const container = document.getElementById("root");
 if (!container) throw new Error("Biny demo root is missing.");

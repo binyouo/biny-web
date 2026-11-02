@@ -31,11 +31,11 @@ export function SiteNav() {
       <nav aria-label="主导航" className="site-nav wrap">
         <Link aria-label="Biny 首页" className="site-brand" to={home}><Logo size={30} /><span>Biny</span></Link>
         <div className="site-nav-links">
+          <Link className="site-nav-link" data-active={isHome && hash === "#demo"} to={`${home}#demo`}>看它做事</Link>
           <Link className="site-nav-link" data-active={isHome && hash === "#features"} to={`${home}#features`}>能力</Link>
+          <Link className="site-nav-link" data-active={isHome && hash === "#local"} to={`${home}#local`}>住在哪</Link>
           <Link className="site-nav-link" data-active={pathname.includes("/docs")} to={localePath("/docs", locale)}>文档</Link>
           <Link className="site-nav-link" data-active={isHome && hash === "#download"} to={`${home}#download`}>下载</Link>
-          <a className="site-nav-link" href={SITE.releases} rel="noreferrer" target="_blank">更新日志</a>
-          <a className="site-nav-link" href={SITE.issues} rel="noreferrer" target="_blank">帮助</a>
         </div>
         <div className="site-nav-actions">
           <a aria-label="GitHub 仓库" className="site-icon-button site-nav-github" href={SITE.repo} rel="noreferrer" target="_blank"><GithubMark size={18} /></a>
@@ -47,11 +47,11 @@ export function SiteNav() {
         <details className="site-mobile-nav" key={pathname} onClick={(event) => { if ((event.target as Element).closest("a")) event.currentTarget.open = false; }}>
           <summary aria-label="导航菜单" className="site-icon-button"><Icon name="menu" size={21} /></summary>
           <div className="site-mobile-menu">
-            <Link to={`${home}#features`}>探索能力<Icon name="arrowRight" size={16} /></Link>
+            <Link to={`${home}#demo`}>看它做事<Icon name="arrowRight" size={16} /></Link>
+            <Link to={`${home}#features`}>能力<Icon name="arrowRight" size={16} /></Link>
+            <Link to={`${home}#local`}>住在哪<Icon name="arrowRight" size={16} /></Link>
             <Link to={localePath("/docs", locale)}>文档<Icon name="arrowRight" size={16} /></Link>
             <Link to={`${home}#download`}>下载 Biny<Icon name="download" size={16} /></Link>
-            <a href={SITE.releases} rel="noreferrer" target="_blank">更新日志<Icon name="external" size={15} /></a>
-            <a href={SITE.issues} rel="noreferrer" target="_blank">帮助<Icon name="external" size={15} /></a>
             <a href={SITE.repo} rel="noreferrer" target="_blank">GitHub<GithubMark size={16} /></a>
           </div>
         </details>

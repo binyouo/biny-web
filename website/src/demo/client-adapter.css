@@ -11,3 +11,23 @@
 /* Secondary showcase: keep Biny's conversation and browser, with no app navigation. */
 html[data-demo="computer"] :is(.biny-sidebar-topbar-floating, .biny-sidebar-topbar-hit-layer, .desktop-inspector-header, .desktop-inspector-resizer) { display: none; }
 html[data-demo="computer"] :is(.biny-chat-toolbar button, .inspector-browser-preview-action, .inspector-browser-history, .inspector-browser-actions, .inspector-browser-new-tab, .inspector-browser-tab > button[title="关闭标签页"]) { display: none; }
+
+/* ---- 网页演示：没接线的入口保留显示，但点不动 ----
+   显示给用户看界面长什么样，点击不响应，不会触发 adapter 的报错。
+   pointer-events 拦截点击；opacity 提示不可交互。 */
+
+:is(.biny-composer-add,
+    .biny-capabilities-pill,
+    .context-usage,
+    .biny-project-row-action,
+    .biny-session-delete,
+    .biny-sidebar-session-expand,
+    .biny-sidebar-topbar .biny-chrome-button:not([aria-label="收起侧栏"]):not([aria-label="展开侧栏"]),
+    .biny-sidebar-section-actions,
+    .biny-sidebar-settings-item) {
+  pointer-events: none;
+  opacity: .45;
+}
+
+/* 会话右键菜单：屏蔽右键（contextmenu 不是 click，pointer-events 拦不住，
+   用 JS 在 client-main.tsx 里拦）。左键切换会话不受影响。 */

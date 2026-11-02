@@ -51,9 +51,7 @@ export function DownloadSection() {
         })}
       </div>
       <div className="download-notes">
-        {ready && release.cached && <p role="status">当前显示已收录版本。<button onClick={release.retry} type="button">刷新版本</button></p>}
         {(release.status === "error" || release.status === "unpublished") && <p role="status">{release.status === "error" ? "无法获取版本信息。" : "暂无可下载的安装包。"}<button onClick={release.retry} type="button">重试</button></p>}
-        <div className="download-links"><a href={SITE.releases} rel="noreferrer" target="_blank">所有版本与更新说明<Icon name="arrowRight" size={14} /></a><Link to={localePath("/docs/installation", locale)}>安装帮助<Icon name="arrowRight" size={14} /></Link></div>
       </div>
       <div className="download-alternatives">
         <details className="download-source" id="terminal">
