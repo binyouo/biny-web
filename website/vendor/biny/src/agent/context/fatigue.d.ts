@@ -24,7 +24,6 @@ export interface FatigueServiceOptions {
 export declare class FatigueService {
     private readonly filePath;
     private readonly now;
-    private readonly emotions;
     private state;
     constructor(options?: FatigueServiceOptions);
     get path(): string;

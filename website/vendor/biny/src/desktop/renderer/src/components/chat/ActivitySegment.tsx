@@ -3,7 +3,7 @@ import { useChatResponseSettings } from "../../chatResponseSettings.js";
  * 活动段：连续「思考 + 工具」步骤的可展开记录。
  *
  * 头部是相位头像串（思考/探索/修改/运行/通用五类，24px 圆形图标，重叠堆叠）+ 摘要文案 +
- * 展开控件；落定后默认收起，摘要报「工具调用 N 次」或纯思考的「已思考 N 秒」；
+ * 展开控件；落定后默认收起，摘要报「用了 N 个工具」或纯思考的「已思考 N 秒」；
  * 当前阶段直接反馈运行状态，消息末尾只在等待空档补充提示。
  *
  * 头部只渲染最近 8 个相位，较早阶段以「+N」计数表示；点击计数打开完整时间线。
@@ -14,12 +14,10 @@ import { useChatResponseSettings } from "../../chatResponseSettings.js";
  *
  * 待授权优先展示其所在相位；整个活动段结束后收起，不在工具间空档重置。
  */
-import React, { memo, useCallback, useId, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useMemo, useState } from "react";
 import type { PermissionResult } from "../../../../../permission/PermissionManager.js";
 import {
-  activityToolRow,
   buildActivityPhases,
-  formatDuration,
   phaseLabel,
   phaseThinkingSeconds,
   type ActivityPhase,
@@ -29,10 +27,11 @@ import {
 } from "../../chatModel.js";
 import type { IconName } from "../Icon.js";
 import { reasoningDetailText, reasoningExpandable, reasoningSummaryLine } from "../../reasoningPresentation.js";
-import type { TimelineReasoningStep, TimelineTool, TimelineToolStep } from "../../sessionTimeline.js";
+import type { TimelineReasoningStep, TimelineToolStep } from "../../sessionTimeline.js";
 import { Icon } from "../Icon.js";
 import { MarkdownContent } from "../MarkdownContent.js";
-import { ToolActivityDetail, ToolPermission } from "../ToolActivity.js";
+import { toolCallTree } from "../../toolCallTree.js";
+import { ToolCallCard } from "./ToolCallCard.js";
 import { Collapse } from "../Collapse.js";
 import { ToolResultImages } from "./ToolResultImages.js";
 import { WidgetRenderer } from "../WidgetRenderer.js";
@@ -75,7 +74,15 @@ export const ActivitySegment = memo(function ActivitySegment({
 }: ActivitySegmentProps): React.JSX.Element | null {
   const { collapseThinking } = useChatResponseSettings();
   const items: ActivityPhaseItem[] = useMemo(
-    () => steps.map((step, index) => ({ step, index })),
+    () => {
+      const calls = toolCallTree(steps.flatMap(step => step.kind === "tool" ? [step.tool] : []));
+      const byId = new Map(calls.map(tool => [tool.id, tool]));
+      return steps.flatMap<ActivityPhaseItem>((step, index) => {
+        if (step.kind !== "tool") return [{ step, index }];
+        const tool = byId.get(step.tool.id);
+        return tool ? [{ step: { ...step, tool }, index }] : [];
+      });
+    },
     [steps]
   );
   const phases = useMemo(() => buildActivityPhases(items), [items]);
@@ -86,11 +93,24 @@ export const ActivitySegment = memo(function ActivitySegment({
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   }), []);
+  // 待授权时自动进入所在相位；授权独立于工具详情的折叠状态。
+  const forcedToolIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const { step } of items) {
+      if (step.kind === "tool" && [step.tool, ...(step.tool.children ?? [])].some(tool => tool.permission && !tool.permission.resolved)) ids.add(step.tool.id);
+    }
+    return ids;
+  }, [items]);
+  const pendingPhaseIndex = forcedToolIds.size > 0
+    ? phases.findIndex((phase) => phase.items.some(({ step }) => step.kind === "tool" && forcedToolIds.has(step.tool.id)))
+    : -1;
+
+
   const isLive = (phase: ActivityPhase): boolean => running && phase.items.some(({ step }) =>
     step.kind === "reasoning" ? !step.completed : step.kind === "tool" && (step.tool.status === "running" || step.tool.status === "waiting")
   );
   const labelFor = (phase: ActivityPhase, seconds?: number) => {
-    if (running && phase.items.some(({ step }) => step.kind === "tool" && step.tool.permission && !step.tool.permission.resolved)) {
+    if (running && phase.items.some(({ step }) => step.kind === "tool" && forcedToolIds.has(step.tool.id))) {
       return { verb: "等待确认", rest: "" };
     }
     return phaseLabel(phase, isLive(phase), seconds);
@@ -105,17 +125,6 @@ export const ActivitySegment = memo(function ActivitySegment({
   const secondsForThinkingPhase = (phase: ActivityPhase): number | undefined =>
     phaseThinkingSeconds(phase) ?? (thinkingPhaseCount === 1 ? thinkingSeconds : undefined);
 
-  // 待授权时自动进入所在相位；授权独立于工具详情的折叠状态。
-  const forcedToolIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const tool of toolSteps.map((step) => step.tool)) {
-      if (tool.permission && !tool.permission.resolved) ids.add(tool.id);
-    }
-    return ids;
-  }, [toolSteps]);
-  const pendingPhaseIndex = forcedToolIds.size > 0
-    ? phases.findIndex((phase) => phase.items.some(({ step }) => step.kind === "tool" && step.tool.permission && !step.tool.permission.resolved))
-    : -1;
 
   // 模型执行时自动跟随，只有落定后的选择才由用户控制。恢复执行也清除旧选择。
   const thinkingIndex = phases.findLastIndex((phase) => phase.kind === "thinking");
@@ -197,7 +206,7 @@ export const ActivitySegment = memo(function ActivitySegment({
                   <span className="chat-activity-verb">{headerLabel.verb}</span>
                   {headerLabel.rest ? <span className="chat-activity-rest"> {headerLabel.rest}</span> : null}
                 </>
-              ) : <span className="chat-activity-verb">工具调用 {String(toolSteps.length)} 次</span>}
+              ) : <span className="chat-activity-verb">用了 {String(toolSteps.length)} 个工具</span>}
             </button>
             {!allThinking && phases.length > 1 ? (
               <button
@@ -223,7 +232,7 @@ export const ActivitySegment = memo(function ActivitySegment({
         )}
       </div>
       <Collapse className="chat-activity-collapse" open={railOpen}>
-        <div className="chat-activity-rail">
+        {railOpen ? <div className="chat-activity-rail">
           {timelineMode || !openPhaseOrNull
             ? phases.map((phase, index) => {
               const label = labelFor(phase, secondsForThinkingPhase(phase));
@@ -256,13 +265,21 @@ export const ActivitySegment = memo(function ActivitySegment({
                 segmentKey={segmentKey}
               />
             )}
-        </div>
+        </div> : null}
       </Collapse>
       {toolSteps.map(({ tool }) => <ToolResultImages key={tool.id} result={tool.result} />)}
       {toolSteps.filter(({ tool }) => tool.tool === "WidgetRenderer").map(({ tool }) => <WidgetRenderer key={`widget-${tool.id}`} tool={tool} running={running} onOpenExternal={onOpenExternal} />)}
     </section>
   );
-});
+}, (previous, next) => previous.running === next.running
+  && previous.thinkingSeconds === next.thinkingSeconds
+  && previous.projectId === next.projectId
+  && previous.onOpenExternal === next.onOpenExternal
+  && previous.onPreviewFile === next.onPreviewFile
+  && previous.onResolvePermission === next.onResolvePermission
+  // 父时间线重新分组时数组会改变；未变的步骤快照不应重建已完成的活动段。
+  && previous.steps.length === next.steps.length
+  && previous.steps.every((step, index) => step === next.steps[index]));
 
 /**
  * 一个相位的展开体。时间线视图里的思考相位收成一行 chip（可展开全文）；
@@ -324,7 +341,7 @@ const PhaseBody = memo(function PhaseBody({
       {phase.items.map(({ step }) => {
         if (step.kind !== "tool") return null;
         return (
-          <ActivityToolRow
+          <ToolCallCard
             key={`${segmentKey}-row-${step.id}`}
             onOpenExternal={onOpenExternal}
             onPreviewFile={onPreviewFile}
@@ -332,7 +349,7 @@ const PhaseBody = memo(function PhaseBody({
             projectId={projectId}
             tool={step.tool}
             open={openTools.has(step.tool.id)}
-            onToggle={() => onToggleTool(step.tool.id)}
+            onToggle={onToggleTool}
           />
         );
       })}
@@ -384,70 +401,6 @@ const ThinkingChip = memo(function ThinkingChip({
           />
         </div>
       ) : null}
-    </div>
-  );
-});
-
-/** 轨道里的工具动宾行：动词加重、宾语弱化截断、± 行数、行内展开完整详情。 */
-export const ActivityToolRow = memo(function ActivityToolRow({
-  tool,
-  open: controlledOpen,
-  onToggle,
-  projectId,
-  onPreviewFile,
-  onOpenExternal,
-  onResolvePermission,
-}: {
-  tool: TimelineTool;
-  open?: boolean;
-  onToggle?(): void;
-  projectId: string;
-  onPreviewFile(path: string): void;
-  onOpenExternal(url: string): void;
-  onResolvePermission?(requestId: string, result: PermissionResult): Promise<void>;
-}): React.JSX.Element {
-  const row = activityToolRow(tool);
-  const [localOpen, setLocalOpen] = useState(false);
-  const open = controlledOpen ?? localOpen;
-  const toggle = (): void => { if (onToggle) onToggle(); else setLocalOpen(current => !current); };
-  const detailId = useId();
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const running = row.running;
-  return (
-    <div data-activity-anchor="" className={`chat-tool-row-wrap${tool.permission ? " has-permission" : ""}`} onKeyDown={(event) => {
-      if (event.key === "Escape" && open) { event.stopPropagation(); toggle(); buttonRef.current?.focus(); }
-    }}>
-      <button
-        aria-expanded={open}
-        aria-controls={detailId}
-        ref={buttonRef}
-        className={`chat-tool-row${open ? " is-open" : ""}`}
-        data-activity-toggle=""
-        onClick={toggle}
-        type="button"
-      >
-        {running ? <span aria-hidden="true" className="chat-tool-run-dot" /> : null}
-        {row.error ? <span aria-hidden="true" className="chat-tool-row-error"><Icon name="circle-close" size={12} /></span> : null}
-        <span className={`chat-tool-row-verb${row.error ? " is-error" : ""}`}>{row.verb}</span>
-        <span className="chat-tool-row-object" title={row.object}>{row.object}</span>
-        {row.plus !== undefined && row.plus > 0 ? <span className="chat-tool-row-diff is-add">+{String(row.plus)}</span> : null}
-        {row.minus !== undefined && row.minus > 0 ? <span className="chat-tool-row-diff is-del">-{String(row.minus)}</span> : null}
-        {tool.durationMs !== undefined ? (
-          <span className="chat-tool-row-duration" title="耗时"><Icon name="timer" size={12} />{formatDuration(tool.durationMs)}</span>
-        ) : null}
-        <span className="chat-tool-row-chevron"><Icon name="chevron" size={14} /></span>
-      </button>
-      <Collapse className="chat-tool-row-collapse" open={open}>
-        <div className="chat-tool-row-detail" id={detailId}>
-          <ToolActivityDetail
-            onOpenExternal={onOpenExternal}
-            onPreviewFile={onPreviewFile}
-            projectId={projectId}
-            tool={tool}
-          />
-        </div>
-      </Collapse>
-      {onResolvePermission ? <ToolPermission tool={tool} onResolvePermission={onResolvePermission} /> : null}
     </div>
   );
 });

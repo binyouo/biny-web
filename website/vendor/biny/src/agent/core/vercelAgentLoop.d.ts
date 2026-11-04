@@ -32,6 +32,7 @@ export interface VercelLoopState {
         id: string;
         name: string;
         arguments: Record<string, unknown>;
+        providerMetadata?: Record<string, unknown>;
     }>;
     widgetInputs: Map<string, {
         text: string;
@@ -50,6 +51,7 @@ export interface VercelLoopState {
     outputProducedSinceStep: boolean;
 }
 interface VercelStepRecord {
+    requestId: string;
     message: AgentAssistantMessage;
     toolResults: AgentToolResultMessage[];
     messages: AgentMessage[];

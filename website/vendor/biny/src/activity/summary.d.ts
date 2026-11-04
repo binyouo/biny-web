@@ -39,6 +39,9 @@ export interface ActivitySummaryStats {
     reportGeneratedAt?: number;
     reportStats?: ActivityReportStats;
     reportState?: {
+        /** 内部日报缓存所有权；新写入使用唯一值，旧缓存无需迁移。 */
+        generation?: string;
+        sourceHash?: string;
         sessionCount: number;
         pendingModel: number;
         blocked: boolean;
@@ -94,6 +97,8 @@ export interface ActivitySummarySourceSession {
     snapshotCount: number;
     ocrCharCount: number;
     appNames: string[];
+    /** 起点真实点击的应用；仅补足首个 focus 之前的已知归属。 */
+    initialClickApplication?: string;
     /** 只包含 event_type = app_focus 的切换事件，顺序与 perAppDurationsForSession 一致。 */
     applicationEvents: Array<{
         occurredAt: string;

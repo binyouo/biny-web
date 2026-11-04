@@ -24,6 +24,7 @@ export interface SessionCatalogRecord {
     labels?: string[];
     personalization?: ChatPersonalizationOverride;
     isolation?: SessionIsolation;
+    fastMode?: boolean;
     createdAt: string;
     updatedAt: string;
 }
@@ -41,6 +42,7 @@ export interface SessionCatalogItem {
     labels?: string[];
     personalization?: ChatPersonalizationOverride;
     isolation?: SessionIsolation;
+    fastMode?: boolean;
     metadataRevision?: string;
     hasChildren: boolean;
 }
@@ -73,6 +75,7 @@ export interface SessionCatalogMetadataPatch {
     labels?: string[];
     personalization?: ChatPersonalizationOverride;
     isolation?: SessionIsolation;
+    fastMode?: boolean;
 }
 export declare class SessionCatalogConflictError extends Error {
     readonly sessionId: string;
@@ -87,7 +90,10 @@ export declare function writeSessionCatalogRecord(workspaceRoot: string, record:
     expectedRevision?: string;
 }): Promise<SessionCatalogRecord>;
 /** 读取、校验并更新一个会话的常用元数据；expectedRevision 用于挡住过期 Renderer 覆盖新值。 */
-export declare function updateSessionCatalogMetadata(workspaceRoot: string, sessionId: string, patch: SessionCatalogMetadataPatch, expectedRevision?: string): Promise<SessionCatalogRecord>;
+export declare function updateSessionCatalogMetadata(workspaceRoot: string, sessionId: string, patch: SessionCatalogMetadataPatch, expectedRevision?: string, options?: {
+    indexRefresh?: "background" | "wait";
+    onIndexRefresh?: (completion: Promise<void>) => void;
+}): Promise<SessionCatalogRecord>;
 export declare function readSessionCatalogRecord(workspaceRoot: string, sessionId: string): Promise<SessionCatalogRecord | undefined>;
 export declare function deleteSessionCatalogRecord(workspaceRoot: string, sessionId: string): Promise<void>;
 /**

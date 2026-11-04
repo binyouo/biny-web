@@ -13,14 +13,18 @@ export interface SkillDefinition extends SkillMetadata {
     path: string;
     /** Canonical absolute path of the skill markdown file. */
     filePath: string;
-    /** Root the file must stay inside when it is re-read at invoke time. */
+    /** Root used for file validation during scanning and invocation. */
     rootPath: string;
     scope: SkillScope;
     source: SkillRootSource;
+    /** `always-inject: true` 的 skill 不依赖能力分析，名称和简介每轮进入系统提示。 */
+    alwaysInject: boolean;
 }
 export interface SkillBundle {
     skills: SkillDefinition[];
     paths: string[];
+    /** 与目录快照绑定的正文，不进入可用技能列表。 */
+    instructions: Record<string, string>;
     prompt: string;
     warnings: string[];
     conflicts: SkillConflict[];
@@ -42,18 +46,11 @@ export interface LoadSkillsOptions {
     projectOverrides?: Readonly<Record<string, boolean>>;
 }
 export declare function loadSkills(options: LoadSkillsOptions): Promise<SkillBundle>;
-/** 能力分析完成后只读取选中 Skill 的正文；自动装配不等同于一次 Skill 工具调用。 */
 export declare function skillPromptForSelection(bundle: SkillBundle, selection?: CapabilitySelectionValue): Promise<string>;
 export declare function skillPathsForSelection(bundle: SkillBundle, selection?: CapabilitySelectionValue): string[];
 type SkillBundleSource = SkillBundle | (() => SkillBundle);
-export declare function createSkillTool(source: SkillBundleSource): Tool;
+export declare function createSkillTool(source: SkillBundleSource, refresh?: (force?: boolean) => Promise<void>): Tool;
 /** 第三级渐进式披露：只在 SKILL.md 明确需要时读取 references/scripts/assets。 */
 export declare function createSkillResourceTool(source: SkillBundleSource): Tool;
-/**
- * 本地技能搜索（介于元数据清单与 Skill 工具之间的发现层）。
- *
- * 清单只含本回合激活的技能；模型怀疑还有其他已装技能时用关键词在这里检索，
- * 纯本地打分、不联网也不调辅助模型，命中后仍经 Skill 工具加载全文。
- */
-export declare function createSkillLookupTool(source: SkillBundleSource): Tool;
+export declare function rankSkillsByQuery(skills: SkillDefinition[], query: string, limit: number): SkillDefinition[];
 export {};

@@ -1,3 +1,4 @@
+import { ScriptToolDetails } from "./chat/ScriptToolDetails.js";
 /**
  * 工具调用详情体（headless）。
  *
@@ -15,7 +16,13 @@ import { CopyButton } from "./CopyButton.js";
 import { Icon } from "./Icon.js";
 import { CodeView } from "./chat/CodeView.js";
 import { IoCard } from "./chat/IoCard.js";
+import { textLanguage } from "../syntaxHighlight.js";
+import { ToolCodeBlock } from "./chat/ToolCodeBlock.js";
+import { ToolParameters } from "./chat/ToolParameters.js";
+import { ToolExecutionStatus } from "./chat/ToolExecutionStatus.js";
 import { toolResultImages } from "../toolImagePresentation.js";
+import { commandOutputPreview, commandOutputText } from "../commandOutput.js";
+import { classifyDiffLines } from "../../../../utils/diffLines.js";
 
 interface ToolActivityDetailProps {
   projectId: string;
@@ -30,10 +37,18 @@ export const ToolActivityDetail = memo(function ToolActivityDetail({ projectId, 
   const diff = useMemo(() => committedDiff ? analyzeDiff(committedDiff) : undefined, [committedDiff]);
   const webSearch = useMemo(() => tool.tool === "WebSearch" ? projectWebSearchView(tool.args, tool.result) : undefined, [tool.args, tool.result, tool.tool]);
   const errorText = meaningfulError(tool, command);
+  const commandMetadata = command && tool.result && typeof tool.result === "object" ? tool.result as Record<string, unknown> : undefined;
+  const script = tool.tool === "run_script" || tool.tool === "exec";
 
   return (
     <div className="tool-details" data-project-id={projectId}>
-      {command ? <CommandLog command={command} error={errorText} status={tool.permission && !tool.permission.resolved ? "waiting" : tool.status} running={tool.status === "running" && (!tool.permission || tool.permission.resolved)} /> : null}
+      {tool.optimization && !script ? <p className="tool-optimization-note">{tool.optimization.kind === "ptc" ? "脚本筛选与聚合" : "RTK 命令输出压缩"} · ≈{tool.optimization.beforeTokens.toLocaleString()} → ≈{tool.optimization.afterTokens.toLocaleString()} tokens。工具结果估算，不代表账单节省。</p> : null}
+      {!script && !command ? <ToolParameters args={tool.args} toolName={tool.tool} /> : null}
+      {script ? <ScriptToolDetails tool={tool} /> : null}
+      {command ? <CommandLog tool={tool} command={command} error={errorText} status={tool.permission && !tool.permission.resolved ? "waiting" : tool.status} /> : null}
+      {typeof commandMetadata?.executedCommand === "string" ? <details><summary>实际执行命令</summary><IoCard input={commandMetadata.executedCommand} output={null} /></details> : null}
+      {typeof commandMetadata?.optimizationWarning === "string" ? <p className="tool-optimization-note">{commandMetadata.optimizationWarning}</p> : null}
+      {tool.optimization?.kind === "rtk" ? <p className="tool-optimization-note">当前记录保存压缩后的输出；原始命令输出未保留。</p> : null}
       {tool.fileChange ? <section className="tool-section">
         <h4 className="tool-section-label">{tool.fileChange.server ? `远端变更 · ${tool.fileChange.server}` : "已提交变更"}</h4>
         <pre><code>{tool.fileChange.operation} {tool.fileChange.path}{tool.fileChange.destinationPath ? ` → ${tool.fileChange.destinationPath}` : ""}</code></pre>
@@ -48,7 +63,7 @@ export const ToolActivityDetail = memo(function ToolActivityDetail({ projectId, 
           <pre><code>{tool.display.detail}</code></pre>
         </section>
       ) : null}
-      {!command && !diff && !webSearch && !tool.fileChange ? <ToolPayload onPreviewFile={onPreviewFile} tool={tool} /> : null}
+      {!script && !command && !diff && !webSearch && !tool.fileChange ? <ToolPayload onPreviewFile={onPreviewFile} tool={tool} /> : null}
       {errorText && !command ? (
         <section className="tool-section">
           <h4 className="tool-section-label">错误</h4>
@@ -92,7 +107,7 @@ function PermissionRequest({ tool, onResolvePermission }: {
     }
   };
 
-  return <PermissionCard error={resolutionError} disabled={resolving} permission={optimisticResult ? { ...tool.permission!, ...optimisticResult, resolved: true } : tool.permission!} onResolve={resolve} />;
+  return <PermissionCard error={resolutionError} disabled={resolving} permission={optimisticResult && !tool.permission!.resolved ? { ...tool.permission!, ...optimisticResult, resolved: true } : tool.permission!} onResolve={resolve} />;
 }
 
 // 「Command exited with code N.」只是退出码徽标的复读，不单独成段。
@@ -192,8 +207,8 @@ function PermissionCard({
               void onResolve({ approved: false, action: "deny_with_reason", scope: "once", message: reason, confirmation: undefined });
             }}
             type="button"
-          >{showDenialReason ? "提交拒绝理由" : "拒绝并说明理由"}</button>
-          <button className="is-primary" disabled={disabled || (request.requireFullYes && !fullYesProvided)} onClick={() => void onResolve({ approved: true, action: "allow_once", scope: "once", confirmation: request.requireFullYes ? confirmation : undefined })} type="button">{disabled ? "正在提交…" : "允许一次"}</button>
+          ><span className="button-state-label"><span aria-hidden={showDenialReason}>拒绝并说明理由</span><span aria-hidden={!showDenialReason}>提交拒绝理由</span></span></button>
+          <button aria-busy={disabled} className="is-primary" disabled={disabled || (request.requireFullYes && !fullYesProvided)} onClick={() => void onResolve({ approved: true, action: "allow_once", scope: "once", confirmation: request.requireFullYes ? confirmation : undefined })} type="button">允许一次</button>
           {request.canRemember !== false ? <button className="is-session" disabled={disabled || (request.requireFullYes && !fullYesProvided)} onClick={() => void onResolve({ approved: true, action: "allow_always", scope: permissionScopeForAlways(request), confirmation: request.requireFullYes ? confirmation : undefined })} type="button" title="仅记住当前会话中相同命令、路径或工具的授权">本会话允许</button> : null}
         </div>
       </div>
@@ -209,13 +224,15 @@ function resolvedPermissionLabel(action: PermissionAction | undefined, approved:
   return approved ? "已允许" : "已拒绝";
 }
 
-/** 活动行已经提供标题；详情只保留命令、原始输出和一次状态反馈。 */
-function CommandLog({ command, error, status, running }: { command: TimelineCommand; error?: string; status: TimelineTool["status"]; running: boolean }): React.JSX.Element {
+/** 参数与结果分区，流式输出继续使用有界预览与按需完整复制。 */
+function CommandLog({ tool, command, error, status }: { tool: TimelineTool; command: TimelineCommand; error?: string; status: TimelineTool["status"] }): React.JSX.Element {
   const scrollRef = useRef<HTMLPreElement>(null);
   const followOutput = useRef(true);
-  const output = [command.stdout, command.stderr].filter(Boolean).join(command.stdout.endsWith("\n") ? "" : "\n");
-  const failed = status === "failed" || status === "denied" || (command.exitCode !== undefined && command.exitCode !== 0);
-  const statusText = status === "waiting" ? "等待确认" : status === "cancelled" || status === "aborted" ? "已停止" : status === "skipped" ? "已跳过" : status === "unknown" ? "执行状态未知" : failed ? command.exitCode !== undefined ? `退出码 ${String(command.exitCode)}` : "执行失败" : output ? "已完成" : "已完成，无输出";
+  const { stdout, stderr, stdoutTruncated, stderrTruncated } = command;
+  const { text: output, truncated } = useMemo(() => commandOutputPreview({ stdout, stderr, stdoutTruncated, stderrTruncated }), [stdout, stderr, stdoutTruncated, stderrTruncated]);
+  const nonzeroExit = command.exitCode !== undefined && command.exitCode !== 0;
+  const resultStatus = status === "success" && nonzeroExit ? "failed" : status;
+  const running = status === "running";
   useEffect(() => {
     const element = scrollRef.current;
     if (running && element && followOutput.current) element.scrollTop = element.scrollHeight;
@@ -223,21 +240,24 @@ function CommandLog({ command, error, status, running }: { command: TimelineComm
 
   return (
     <div className="chat-command">
-      {command.command ? <div className="chat-command-input">
-        <pre aria-label="执行命令" tabIndex={0}><span aria-hidden="true">$ </span>{command.command}</pre>
-        <CopyButton label="复制命令" value={command.command} />
-      </div> : null}
-      {output ? <div className="chat-command-result">
-        <pre aria-label="命令输出" tabIndex={0} ref={scrollRef} onScroll={(event) => {
-          const element = event.currentTarget;
-          followOutput.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
-        }}>{output}</pre>
-        <CopyButton label="复制输出" value={output} />
-      </div> : null}
-      <div className={`chat-command-status${failed || error ? " is-error" : ""}`}>
-        {running ? <><span aria-hidden="true" className="chat-tool-run-dot" />{output ? "运行中" : "等待输出…"}</>
-          : error ? error : statusText}
-      </div>
+      <ToolParameters args={tool.args ?? { command: command.command }} toolName={tool.tool} />
+      <section className="command-result" aria-label="命令结果">
+        <div className="command-result-summary">
+          <h4 className="tool-section-label">结果</h4>
+          <ToolExecutionStatus status={resultStatus} />
+          {nonzeroExit ? <span className="command-exit-code">退出码 {command.exitCode}</span> : null}
+        </div>
+        {output ? <div className="chat-command-result tool-code-block">
+          <pre aria-label="命令输出" tabIndex={0} ref={scrollRef} onScroll={(event) => {
+            const element = event.currentTarget;
+            followOutput.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
+          }}>{output}</pre>
+          <CopyButton label={truncated ? "复制完整输出" : "复制输出"} value={output} resolveValue={() => commandOutputText(command, tool.updates)} preserveTrailingNewline />
+        </div> : null}
+        {truncated ? <div className="chat-command-status">仅显示末尾输出，可复制全文</div> : null}
+        {error ? <div className="chat-command-status is-error" role="alert">{error}</div> : null}
+        {!output && !error ? <p className="script-output-empty">{resultStatus === "success" ? "已完成，无输出" : running ? "等待输出…" : "暂无输出"}</p> : null}
+      </section>
     </div>
   );
 }
@@ -320,43 +340,42 @@ function DiffView({ diff, info, onPreviewFile }: { diff: string; info: DiffInfo;
 
 interface DiffLineData {
   text: string;
+  kind: "add" | "del" | "hunk" | "meta" | "ctx";
 }
 
 function DiffLine({ line }: { line: DiffLineData }): React.JSX.Element {
-  return <span className="diff-line" data-line={diffLineKind(line.text)}>{line.text}{"\n"}</span>;
+  return <span className="diff-line" data-line={line.kind}>{line.text}{"\n"}</span>;
 }
 
 function ToolPayload({ tool, onPreviewFile }: { tool: TimelineTool; onPreviewFile(path: string): void }): React.JSX.Element {
   const progress = tool.updates.filter((update) => update.text).map((update) => update.text).join("\n");
   const display = tool.display;
   if (display?.kind === "file_io") {
-    // 操作和路径在折叠行的名称与摘要里已经表达过，这里只补充结果本身；
-    // 读文件的内容按扩展名做语法高亮（带行号）。
+    // 文件正文保留按扩展名的语法高亮与行号。
     const resultPreview = fileToolResult(tool.result);
-    if (!resultPreview?.text && resultPreview?.count === undefined) return <></>;
     const path = display.path ?? tool.path;
     return (
       <section className="tool-section">
-        {resultPreview.count !== undefined ? (
+        {resultPreview?.count !== undefined ? (
           <h4 className="tool-section-label">结果<span className="tool-section-meta">{resultPreview.count}</span></h4>
         ) : null}
-        {resultPreview.text ? (
+        {resultPreview?.text ? (
           <CodeView code={resultPreview.text} filePath={path} onPreviewFile={path ? onPreviewFile : undefined} />
         ) : null}
       </section>
     );
   }
   // 参数与结果分区，运行时在结果区展示进度。
-  const input = friendlyResult(tool.args);
   const images = toolResultImages(tool.result);
-  const output = (images ? images.caption : friendlyResult(tool.result)) ?? (progress || undefined);
-  if (input === undefined && output === undefined) return <></>;
+  const output = (images ? images.caption : toolResultText(tool.result)) ?? (progress || undefined);
+  if (output === undefined) return <></>;
+  const failed = tool.status === "failed" || tool.status === "denied" || tool.status === "unknown" || tool.status === "cancelled";
+  const language = images || tool.result === undefined ? "text" : typeof tool.result === "string" ? textLanguage(output) : "json";
   return (
-    <IoCard
-      input={input ?? null}
-      output={output ?? null}
-      outputError={tool.status === "failed" || tool.status === "denied" || tool.status === "unknown" || tool.status === "cancelled"}
-    />
+    <section className="tool-section">
+      <h4 className="tool-section-label" data-error={failed || undefined}>{failed ? "错误" : "结果"}</h4>
+      <ToolCodeBlock text={output} language={language} label="工具结果" copyLabel="复制结果" error={failed} />
+    </section>
   );
 }
 
@@ -385,9 +404,11 @@ function analyzeDiff(diff: string): DiffInfo {
   const files: DiffInfo["files"] = [];
   let additions = 0;
   let deletions = 0;
+  for (const { kind } of classifyDiffLines(diff.replace(/\r\n/gu, "\n"))) {
+    if (kind === "add") additions += 1;
+    if (kind === "delete") deletions += 1;
+  }
   for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
-    if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
     if (!line.startsWith("diff --git ")) continue;
     const match = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
     if (!match?.[2]) continue;
@@ -407,7 +428,17 @@ function analyzeDiff(diff: string): DiffInfo {
 }
 
 function diffLines(diff: string): DiffLineData[] {
-  return diff.split("\n").map((text) => ({ text }));
+  // Classify before display truncation, retaining the original text (including CR).
+  const rawLines = diff.split("\n");
+  return Array.from(classifyDiffLines(diff.replace(/\r\n/gu, "\n")), (entry, index) => {
+    const text = rawLines[index]!;
+    const kind = entry.kind === "delete" ? "del"
+      : entry.kind === "context" ? "ctx"
+      : entry.kind === "old-header" || entry.kind === "new-header" ? "meta"
+      : entry.kind === "meta" ? diffLineKind(text)
+      : entry.kind;
+    return { text, kind };
+  });
 }
 
 function diffLineKind(text: string): "add" | "del" | "hunk" | "meta" | "ctx" {
@@ -439,16 +470,11 @@ function fileToolResult(value: unknown): { count?: string; text?: string } | und
   return undefined;
 }
 
-function friendlyResult(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
+function toolResultText(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (typeof value !== "object") return String(value);
-  const record = value as Record<string, unknown>;
-  for (const key of ["output", "content", "message", "summary", "results"]) {
-    const field = record[key];
-    if (typeof field === "string") return field;
-  }
   try {
     return JSON.stringify(value, null, 2);
   } catch {

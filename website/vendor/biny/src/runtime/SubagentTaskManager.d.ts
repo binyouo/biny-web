@@ -38,8 +38,8 @@ export interface SubagentTaskManagerOptions {
     maxPendingSubagents?: number;
     timeoutMs?: number;
     shutdownDrainMs?: number;
-    /** 将内存调度快照投影到 durable TaskRun；观察者失败不能破坏调度。 */
-    onSnapshot?(snapshot: SubagentTaskSnapshot): void;
+    /** 将内存调度快照投影到 durable TaskRun；未完成输出单独传给持久层，不放大公开快照。观察者失败不能破坏调度。 */
+    onSnapshot?(snapshot: SubagentTaskSnapshot, output?: string): void;
     persistCompletion?(snapshot: SubagentTaskSnapshot, output: string): Promise<void> | void;
     execute(task: string, context: {
         taskId: string;
@@ -74,6 +74,8 @@ export declare class SubagentTaskManager {
     run(task: string, options?: SubagentTaskRunOptions): Promise<string>;
     submit(task: string, options?: SubagentTaskRunOptions): SubmittedSubagentTask;
     getSnapshot(taskId: string): SubagentTaskSnapshot | undefined;
+    /** 取消终态可能先于执行退出；任务仍驻留时不能清理其工作目录。 */
+    isExecuting(taskId: string): boolean;
     listSnapshots(): SubagentTaskSnapshot[];
     subscribe(listener: (task: SubagentTaskSnapshot) => void): () => void;
     cancelTask(taskId: string, reason?: string): boolean;

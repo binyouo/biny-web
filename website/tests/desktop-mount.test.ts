@@ -78,7 +78,8 @@ test("真实 Desktop App 通过演示 preload 启动并读取会话，不替换 
   assert.ok(dom.window.document.querySelector("textarea"), "真实输入框应已挂载");
   assert.ok(text.includes("本周") || text.includes("这周"), text);
   assert.ok(!text.includes("无法加载") && !text.includes("此操作需要桌面端"), text);
-  assert.equal(dom.window.document.documentElement.dataset.base46Theme, "vscode_dark");
+  assert.equal(dom.window.document.documentElement.dataset.theme, "dark");
+  assert.equal(dom.window.document.documentElement.dataset.themePreference, "dark");
   assert.equal(dom.window.document.documentElement.style.getPropertyValue("--app-font-size"), "15");
   context.mock.timers.enable({ apis: ["setTimeout"] });
   await act(async () => { demo.replay("risky"); });
@@ -89,7 +90,7 @@ test("真实 Desktop App 通过演示 preload 启动并读取会话，不替换 
   const request = doc.liveEvents.find(event => event.type === "permission.requested");
   assert.ok(request?.type === "permission.requested");
   await act(async () => { await demo.api.resolvePermission("demo", request.requestId, { approved: false }); demo.skip(); context.mock.timers.tick(300); });
-  assert.ok(dom.window.document.body.textContent.includes("已拒绝"), "拒绝结果由真实权限卡渲染");
+  assert.ok(dom.window.document.body.textContent?.includes("没执行") || dom.window.document.querySelector('[data-status="denied"], [aria-label="已拒绝"]'), "拒绝结果由真实工具状态渲染");
   context.mock.timers.reset();
   await act(async () => { root.render(createElement(ThreadBriefProvider, null, createElement(App))); });
   assert.equal(dom.window.document.querySelector('button[aria-label="设置"]').disabled, false, "桌面端默认保留设置入口");

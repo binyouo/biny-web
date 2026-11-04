@@ -3,13 +3,13 @@ import type { AgentContext, AgentMessage, AgentModel, AgentTool, AgentUsage, Mod
 import { LocalMemory } from "./LocalMemory.js";
 import { WorkspaceContext } from "./WorkspaceContext.js";
 import type { CompactionResult, ContextBudgetStatus, ContextStatus } from "./types.js";
-import type { ModelUsageObserver } from "../../observability/usage.js";
+import type { ModelUsageObserver, UsageModelInfoResolver } from "../../observability/usage.js";
 import type { SessionContextCheckpoint, SessionContextState } from "../../session/metadata.js";
 import type { ModelContextBudget } from "../../ai/types.js";
 import type { AgentAttachment } from "../AgentSession.js";
 import type { PersonalizationMetadata } from "../../session/metadata.js";
 import { type PromptEpochReason } from "../../llm/promptCache.js";
-import type { HybridMemoryRetriever } from "./HybridMemoryRetriever.js";
+import type { SemanticMemoryRetriever } from "./SemanticMemoryRetriever.js";
 import type { PromptBundle } from "../prompts.js";
 export interface ContextCompactionOptions {
     /** 在每次摘要请求前复核宿主预算；拒绝保留原历史，不记录摘要失败。 */
@@ -33,6 +33,8 @@ export interface ContextCompactionOptions {
      * 解析失败由注入方负责降级，这里不做额外校验。
      */
     resolveSummaryModel?: () => AgentModel;
+    /** Request-owned alias/pricing, captured before summary generation can yield. */
+    getUsageModelInfo?: UsageModelInfoResolver;
     /** 与已解析摘要模型配套的容量；直接注入的宿主可显式提供。 */
     resolveSummaryBudget?: (model: AgentModel) => ModelContextBudget | undefined;
 }
@@ -52,6 +54,7 @@ export declare class ContextMemory {
     private readonly getModelRequestContext;
     private readonly memoryRetriever?;
     private readonly allowActivity;
+    private readonly perfTimingRoot?;
     private readonly history;
     private summary;
     private checkpoint;
@@ -76,7 +79,7 @@ export declare class ContextMemory {
     private compactionFailure;
     private checkpointProjectionEnabled;
     private readonly resolveBudget;
-    constructor(getModel: () => AgentModel, workspace: WorkspaceContext, localMemory: LocalMemory | undefined, maxTokens: number, instructionMaxBytes: number, onUsage?: ModelUsageObserver, getBudgetLimits?: () => ModelContextBudget, compactionOptions?: ContextCompactionOptions, onModelRequest?: ModelRequestObserver, getModelRequestContext?: () => ModelRequestContext | undefined, memoryRetriever?: HybridMemoryRetriever | undefined, allowActivity?: () => boolean);
+    constructor(getModel: () => AgentModel, workspace: WorkspaceContext, localMemory: LocalMemory | undefined, maxTokens: number, instructionMaxBytes: number, onUsage?: ModelUsageObserver, getBudgetLimits?: () => ModelContextBudget, compactionOptions?: ContextCompactionOptions, onModelRequest?: ModelRequestObserver, getModelRequestContext?: () => ModelRequestContext | undefined, memoryRetriever?: SemanticMemoryRetriever | undefined, allowActivity?: () => boolean, perfTimingRoot?: string | undefined);
     initialize(): Promise<void>;
     prepareTurn(input: string, prompt: PromptBundle | string, signal?: AbortSignal, attachments?: AgentAttachment[], useMemories?: boolean): Promise<PreparedAgentContext>;
     /** 逐阶段交还控制权，让宿主在耗时检索和压缩期间即可显示真实进度。 */
@@ -120,7 +123,7 @@ export declare class ContextMemory {
     shouldCompactRunContext(context: AgentContext): boolean;
     compactRunContextIfNeeded(context: AgentContext, signal?: AbortSignal, projectedContext?: AgentContext): Promise<RunContextCompaction | undefined>;
     private compactClosedRunContext;
-    restore(messages: AgentMessage[], state?: ContextBudgetStatus | SessionContextState): void;
+    restore(messages: AgentMessage[], contextState?: SessionContextState): void;
     setPersonalization(metadata: PersonalizationMetadata, useMemories?: boolean): void;
     /** 丢弃缓存的工作区快照与 repo map；新会话或工作区在会话外被改动（如切分支）时调用。 */
     invalidateWorkspace(): void;
@@ -145,6 +148,7 @@ export declare class ContextMemory {
 export interface PreparedAgentContext {
     systemPrompt?: string;
     messages: AgentMessage[];
+    loadedSkills?: string[];
     compaction?: CompactionResult;
 }
 export interface RunContextCompaction {

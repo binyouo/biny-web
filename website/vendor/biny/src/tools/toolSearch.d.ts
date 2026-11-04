@@ -7,17 +7,16 @@ import type { Tool, ToolSource } from "./types.js";
 export declare const toolSearchToolName = "ToolSearch";
 declare const toolSearchSchema: z.ZodObject<{
     query: z.ZodString;
-    type: z.ZodOptional<z.ZodEnum<["builtin", "mcp", "skill", "plugin", "subagent", "all"]>>;
+    type: z.ZodOptional<z.ZodEnum<{
+        all: "all";
+        builtin: "builtin";
+        mcp: "mcp";
+        skill: "skill";
+        plugin: "plugin";
+        subagent: "subagent";
+    }>>;
     maxResults: z.ZodOptional<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    query: string;
-    type?: "all" | "mcp" | "builtin" | "subagent" | "skill" | "plugin" | undefined;
-    maxResults?: number | undefined;
-}, {
-    query: string;
-    type?: "all" | "mcp" | "builtin" | "subagent" | "skill" | "plugin" | undefined;
-    maxResults?: number | undefined;
-}>;
+}, z.core.$strip>;
 export type ToolSearchArgs = z.infer<typeof toolSearchSchema>;
 export interface ToolSearchMatch {
     name: string;

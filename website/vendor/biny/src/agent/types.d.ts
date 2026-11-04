@@ -1,3 +1,4 @@
+import type { ToolOptimization } from "../session/toolOptimization.js";
 /** AgentSession 对外发布的规范化运行事件。 */
 import type { AgentConfig } from "../config/schema.js";
 import type { AgentModel } from "./core/types.js";
@@ -9,6 +10,7 @@ import type { SessionUsage } from "../session/metadata.js";
 import type { ContextStatus } from "./context/types.js";
 import type { ContextMemory } from "./context/ContextMemory.js";
 import type { CapabilityStore } from "../runtime/CapabilityStore.js";
+import type { AttachmentReference } from "../attachments/store.js";
 export type AgentPermissionRequest = PermissionPrompt;
 export type AgentPermissionResult = PermissionResult;
 export type AgentTurnStatus = "completed" | "incomplete" | "blocked" | "cancelled" | "failed" | "aborted";
@@ -47,6 +49,7 @@ export type AgentSessionUpdate = {
     type: "message.user";
     messageId: string;
     content: string;
+    attachments?: AttachmentReference[];
     delivery: "steer" | "queue";
 } | {
     type: "context.retrying";
@@ -76,6 +79,7 @@ export type AgentToolEvent = {
     args: unknown;
 } | {
     type: "tool.started";
+    parentToolCallId?: string;
     toolCallId: string;
     tool: string;
     args: unknown;
@@ -95,6 +99,8 @@ export type AgentToolEvent = {
     change: import("../tools/file/fileChange.js").CommittedFileChange;
 } | {
     type: "tool.completed";
+    optimization?: ToolOptimization;
+    modelResult?: unknown;
     toolCallId: string;
     tool: string;
     result: unknown;
@@ -106,6 +112,8 @@ export type AgentToolEvent = {
     evidence?: string;
 } | {
     type: "tool.failed";
+    optimization?: ToolOptimization;
+    modelResult?: unknown;
     toolCallId: string;
     tool: string;
     error: string;

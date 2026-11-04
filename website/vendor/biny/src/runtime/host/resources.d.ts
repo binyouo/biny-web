@@ -2,6 +2,7 @@ import type { AgentConfig } from "../../config/schema.js";
 import { McpToolCatalogCache, McpToolHost, type McpServerStatus } from "../../extensions/mcp.js";
 import { type SkillBundle, type SkillDefinition } from "../../extensions/skills.js";
 import type { Tool } from "../../tools/types.js";
+import { ManagedProcessService, type ManagedProcessServiceOptions } from "../ManagedProcessService.js";
 export type RuntimeResourceState = "loading" | "ready" | "degraded";
 export interface RuntimeResourceSnapshot {
     revision: number;
@@ -24,7 +25,6 @@ export interface McpDiscoveryReadiness {
 }
 export declare class RuntimeHostResourceScope {
     readonly workspaceRoot: string;
-    private readonly config;
     private readonly listeners;
     private readonly mcpHost;
     private skillBundle;
@@ -38,9 +38,12 @@ export declare class RuntimeHostResourceScope {
     private closePromise;
     private readonly discoveryClosed;
     private references;
+    private readonly config;
     constructor(workspaceRoot: string, config: AgentConfig, catalogCache?: McpToolCatalogCache);
     get mcp(): McpToolHost;
     get skills(): SkillBundle;
+    get configurationKey(): string;
+    configureMcp(config: AgentConfig, names: readonly string[], force?: boolean): Promise<void>;
     retain(): void;
     release(): boolean;
     start(): Promise<void>;
@@ -64,7 +67,13 @@ export declare class RuntimeHostResourceScope {
 export declare class RuntimeHostResourceRegistry {
     private readonly scopes;
     private readonly catalogCache;
+    private readonly processServices;
+    private readonly processLogs;
+    private closing;
+    createManagedProcesses(options: ManagedProcessServiceOptions): ManagedProcessService;
+    hasManagedProcesses(): boolean;
     acquire(workspaceRoot: string, config: AgentConfig): RuntimeHostResourceScope;
     release(scope: RuntimeHostResourceScope): Promise<void>;
+    configureMcp(scope: RuntimeHostResourceScope, config: AgentConfig, names: readonly string[], force?: boolean): Promise<void>;
     close(): Promise<void>;
 }

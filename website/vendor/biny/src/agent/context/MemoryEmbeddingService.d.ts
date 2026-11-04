@@ -78,10 +78,8 @@ export declare class MemoryEmbeddingService {
     /** 读取当前模型的 active vectors，计算 Sleep 所需的相似边；索引不可用时安全返回空集。 */
     findSimilarPairs(entries: readonly MemoryEntry[], minimumSimilarity: number, signal?: AbortSignal): Promise<MemorySimilarityScan>;
     /**
-     * 用一段新文本找语义候选。自动写入的 LLM 去重、语义删除和 temporary 清理都走这条
-     * 只读路径；embedding 不可用时返回 undefined，让上层区分“没有候选”和“无法判断”。
-     * 索引尚未建立时按空候选处理；后续写入会
-     * 继续进入事实库，并由增量索引/重建补齐派生向量。
+     * 自动写入判断、语义删除和临时清理共用此路径。范围内已有事实必须全部有当前模型
+     * 的有效索引；缺失或过期时返回 undefined，不能把“无法判断”当成“没有候选”。
      */
     findSimilarEntries(query: string, entries: readonly MemoryEntry[], limit: number, minimumSimilarity: number, signal?: AbortSignal): Promise<MemoryEntry[] | undefined>;
     removeEntries(entryIds: readonly string[]): void;

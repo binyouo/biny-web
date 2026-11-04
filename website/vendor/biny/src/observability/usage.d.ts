@@ -4,7 +4,7 @@
  * 费用计算的原则是「算不准就不给数字」：只要有一段 token 缺对应单价，就把 `pricingKnown`
  * 置为 false 并且不返回金额，避免展示出一个偏低的假费用。
  */
-import type { AgentUsage } from "../agent/core/types.js";
+import type { AgentModel, AgentUsage } from "../agent/core/types.js";
 import type { ModelPricing } from "../config/schema.js";
 import type { SessionUsage, UsageOperation, UsageSummary } from "../session/metadata.js";
 import type { PromptShapeDiagnostic } from "../llm/promptCache.js";
@@ -14,7 +14,10 @@ export interface UsageModelInfo {
     model: string;
     pricing?: ModelPricing;
 }
-export type ModelUsageObserver = (usage: AgentUsage, operation: UsageOperation, modelAlias?: string) => Promise<void> | void;
+/** Auxiliary callers capture this metadata before awaiting their selected model. */
+export type ModelUsageIdentity = string | Readonly<UsageModelInfo>;
+export type ModelUsageObserver = (usage: AgentUsage, operation: UsageOperation, model?: ModelUsageIdentity) => Promise<void> | void;
+export type UsageModelInfoResolver = (model: AgentModel) => Readonly<UsageModelInfo> | undefined;
 export declare function createSessionUsage(usage: AgentUsage, operation: UsageOperation, model: UsageModelInfo, time?: string, promptShape?: Pick<PromptShapeDiagnostic, "epochId" | "stablePrefixHash">): SessionUsage;
 /**
  * 按单价算费用。缓存命中的 token 单价与普通输入不同，所以先从输入里扣掉缓存读写部分，

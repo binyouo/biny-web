@@ -11,6 +11,21 @@ const platforms: { id: Platform; name: string }[] = [
 const terminalCommands = ["npm install -g @biny012/biny", "biny init", "biny"];
 const sourceCommands = [`git clone ${SITE.repo}.git`, "cd Biny-Agent", "pnpm install --frozen-lockfile", "pnpm dev -- init", "pnpm desktop:dev"];
 
+/**
+ * macOS 直链兜底：GitHub API 在当前网络不可用时，仍然保证 macOS 能直接下载。
+ * GitHub API 可用时会自动换成最新 Release 的资产；这里不展示版本号，避免过期信息。
+ */
+const fallbackMacosAssets: ReleaseAsset[] = [
+  {
+    name: "Biny-0.0.1-arm64.dmg",
+    url: "https://github.com/binyouo/Biny-Agent/releases/download/v0.0.1/Biny-0.0.1-arm64.dmg",
+    size: 0,
+    arch: "arm64",
+    platform: "macos",
+    kind: "dmg"
+  }
+];
+
 function architecture(asset: ReleaseAsset) {
   if (asset.platform === "macos") return { arm64: "Apple Silicon", x64: "Intel", universal: "Universal" }[asset.arch];
   return asset.arch === "arm64" ? "ARM64" : "x64";
@@ -25,33 +40,30 @@ function PlatformMark({ platform }: { platform: Platform }) {
 export function DownloadSection() {
   const { locale } = useI18n();
   const release = useLatestRelease();
-  const ready = release.status === "ready";
   return <section className="download-section" id="download" aria-labelledby="download-title">
     <div className="wrap download-wrap">
       <header className="download-heading">
         <h2 id="download-title">下载 Biny</h2>
         <div className="download-heading-meta">
           <p>选择你的操作系统。</p>
-          {ready && release.release.version && <a className="download-version" href={`${SITE.releases}/tag/v${release.release.version}`} target="_blank" rel="noreferrer">v{release.release.version}</a>}
         </div>
       </header>
       <div className="download-grid">
         {platforms.map(platform => {
-          const assets = ready ? platformAssets(release.release.assets, platform.id) : [];
+          const released = platform.id === "macos";
+          const assets = released && release.status === "ready" ? platformAssets(release.release.assets, platform.id) : [];
+          const display = assets.length ? assets : released ? fallbackMacosAssets : [];
           return <section className="download-card" aria-labelledby={`${platform.id}-title`} key={platform.id}>
             <h3 id={`${platform.id}-title`}><PlatformMark platform={platform.id} />{platform.name}</h3>
             <div className="download-assets">
-              {assets.map(asset => <a className="download-asset" href={asset.url} key={asset.name} aria-label={`下载 Biny ${platform.name} ${architecture(asset)} ${asset.kind}`}>
+              {display.map(asset => <a className="download-asset" href={asset.url} key={asset.name} aria-label={`下载 Biny ${platform.name} ${architecture(asset)} ${asset.kind}`}>
                 <span>下载{platform.id === "linux" ? ` ${asset.kind}` : ""}</span>
                 <span className="download-asset-meta">{architecture(asset)}{platform.id === "linux" ? "" : ` · .${asset.kind}`}</span>
               </a>)}
-              {!assets.length && <p className="download-unavailable">{release.status === "loading" ? "正在获取版本…" : ready || release.status === "unpublished" ? "暂未发布" : "版本信息暂不可用"}</p>}
+              {!display.length && <p className="download-unavailable">待发布</p>}
             </div>
           </section>;
         })}
-      </div>
-      <div className="download-notes">
-        {(release.status === "error" || release.status === "unpublished") && <p role="status">{release.status === "error" ? "无法获取版本信息。" : "暂无可下载的安装包。"}<button onClick={release.retry} type="button">重试</button></p>}
       </div>
       <div className="download-alternatives">
         <details className="download-source" id="terminal">

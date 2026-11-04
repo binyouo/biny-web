@@ -46,6 +46,7 @@ export interface ProviderCatalogItem {
   badge?: string;
   connectionMode: "api" | "login" | "acp";
   acpCommand?: string;
+  acpSetup?: { installCommand: string; loginCommand: string; docsUrl: string };
   loginProvider?: DesktopModelLoginProvider;
   baseUrl: string;
   requiresApiKey: boolean;
@@ -130,8 +131,14 @@ function providerApiKeyUrl(providerId: string): string | undefined {
 
 export const providerCatalog: ProviderCatalogItem[] = [
   ...[
-    { id: "claude-code-acp", label: "Claude Code（ACP）", acpCommand: "claude-agent-acp" },
-    { id: "codex-acp", label: "Codex（ACP）", acpCommand: "codex-acp" },
+    { id: "claude-code-acp", label: "Claude Code（ACP）", acpCommand: "claude-agent-acp", acpSetup: {
+      installCommand: "npm install -g @agentclientprotocol/claude-agent-acp",
+      loginCommand: "claude-agent-acp --cli auth login", docsUrl: "https://github.com/agentclientprotocol/claude-agent-acp"
+    } },
+    { id: "codex-acp", label: "Codex（ACP）", acpCommand: "codex-acp", acpSetup: {
+      installCommand: "npm install -g @agentclientprotocol/codex-acp",
+      loginCommand: "codex-acp cli login", docsUrl: "https://github.com/agentclientprotocol/codex-acp"
+    } },
     { id: "custom-acp", label: "自定义 ACP", acpCommand: "" }
   ].map((entry): ProviderCatalogItem => ({ ...entry, value: "acp", description: "本地外部 Agent", badge: "ACP",
     connectionMode: "acp", baseUrl: "", requiresApiKey: false, iconTone: "compatible", models: [] })),

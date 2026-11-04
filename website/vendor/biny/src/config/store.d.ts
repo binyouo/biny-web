@@ -34,3 +34,30 @@ export interface FileConfigStoreOptions {
  */
 export declare function updateConfig(store: AgentConfigStore, workspaceRoot: string | undefined, update: (config: AgentConfig) => AgentConfig): Promise<AgentConfig>;
 export declare function createFileConfigStore(workspaceRoot: string, options?: FileConfigStoreOptions): AgentConfigStore;
+/** CLI 与 Desktop 共用的配置事务；平台差异只在凭据 adapter 和 Host 能力。 */
+export declare class FileConfigStore implements AgentConfigStore {
+    private readonly workspaceRoot;
+    readonly supportsDetachedRuntimeHost: boolean;
+    private currentRevision;
+    private writeTail;
+    private readonly credentials;
+    private readonly configRoot;
+    private readonly pathOptions;
+    private readonly journalPath;
+    constructor(workspaceRoot: string, options?: FileConfigStoreOptions);
+    configPath: () => string;
+    revision: () => number;
+    private transaction;
+    private loadUnlocked;
+    private saveUnlocked;
+    load: (workspaceRoot?: string) => Promise<AgentConfig>;
+    save: (config: AgentConfig, workspaceRoot?: string) => Promise<void>;
+    loadVersioned: (workspaceRoot?: string) => Promise<VersionedConfigSnapshot>;
+    saveVersioned: (config: AgentConfig, expectedRevision: string, workspaceRoot?: string) => Promise<VersionedConfigSnapshot>;
+    saveVersionedDeferred: (config: AgentConfig, expectedRevision: string, deferredFor: string, workspaceRoot?: string) => Promise<VersionedConfigSnapshot>;
+    private saveVersionedTransaction;
+    deferredCredentialStatus: (deferredFor: string, workspaceRoot?: string) => Promise<DeferredCredentialTransactionStatus>;
+    finalizeDeferredCredentials: (deferredFor: string, workspaceRoot?: string) => Promise<void>;
+    rollbackVersionedDeferred: (before: AgentConfig, targetRevision: string, deferredFor: string, workspaceRoot?: string) => Promise<"not_needed" | "completed" | "failed">;
+    rollbackDeferredCredentials: (deferredFor: string, workspaceRoot?: string) => Promise<"not_needed" | "completed" | "failed">;
+}

@@ -1,3 +1,5 @@
+import { type ShellPlan } from "../tools/shell/shell.js";
+import { ManagedProcessLogStore } from "./managedProcessLogStore.js";
 export type ManagedProcessState = "starting" | "running" | "exited" | "failed" | "stopped";
 export interface HttpReadinessProbe {
     type: "http";
@@ -55,6 +57,7 @@ export interface ManagedProcessSnapshot {
     cleanup: ManagedProcessCleanupResult;
 }
 export interface StartManagedProcessOptions {
+    shell?: ShellPlan;
     command: string;
     /** 实际命令经过沙箱包装时，快照仍展示用户批准的原始命令。 */
     displayCommand?: string;
@@ -79,6 +82,12 @@ export interface ManagedProcessOutput {
     hasMore: boolean;
     /** Unconsumed live UTF-8 prefix; wait for output or exit, then retry nextOffset. */
     pendingUtf8Bytes?: number;
+    gap?: {
+        startOffset: number;
+        endOffset: number;
+    };
+    droppedBytes?: number;
+    logError?: string;
 }
 export interface ManagedProcessServiceOptions {
     workspaceRoot: string;
@@ -86,6 +95,8 @@ export interface ManagedProcessServiceOptions {
     processLifetime?: ManagedProcessLifetime;
     terminationGraceMs?: number;
     killSettleMs?: number;
+    logStore?: ManagedProcessLogStore;
+    onClosed?: () => void;
 }
 export type ManagedProcessLifetime = "runtime" | "execution-environment";
 /** Error returned when a caller references an unknown runtime process ID. */
@@ -105,6 +116,10 @@ export declare class ManagedProcessService {
     private initialization;
     private closePromise;
     private closing;
+    private lifecycleError?;
+    private readonly logs;
+    private readonly ownsLogs;
+    private readonly onClosed?;
     constructor(options: ManagedProcessServiceOptions);
     initialize(): Promise<void>;
     start(options: StartManagedProcessOptions): Promise<ManagedProcessSnapshot>;
@@ -116,10 +131,16 @@ export declare class ManagedProcessService {
     readOutput(processId: string, options?: ReadManagedProcessOutputOptions, signal?: AbortSignal): Promise<ManagedProcessOutput>;
     stop(processId: string, reason?: string): Promise<ManagedProcessSnapshot>;
     close(): Promise<ManagedProcessCleanupResult[]>;
+    hasRetainingWork(): boolean;
+    shutdown(): Promise<void>;
+    private drainOutput;
+    private releaseIfDrained;
+    private finishOutput;
     private requireRecord;
     private observeChild;
     private refreshRecord;
     private waitForReadiness;
     private waitForLogRegexReadiness;
     private recordLifecycle;
+    private probeLog;
 }

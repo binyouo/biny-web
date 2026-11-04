@@ -34,5 +34,7 @@ export declare function readSessionFileOrCached<T>(workspaceRoot: string, sessio
     value: T;
 }>;
 export declare function duplicateSessionFile(workspaceRoot: string, sourceSession: string, targetSessionId: string): Promise<string>;
-export declare function createSessionFile(workspaceRoot: string, targetSessionId: string, bytes: Uint8Array): Promise<string>;
+export declare function createSessionFile(workspaceRoot: string, targetSessionId: string, bytes: Uint8Array, options?: {
+    beforeWrite?: () => Promise<void>;
+}): Promise<string>;
 export declare function deleteSessionFile(workspaceRoot: string, session: string, hooks?: SessionDeleteHooks): Promise<void>;

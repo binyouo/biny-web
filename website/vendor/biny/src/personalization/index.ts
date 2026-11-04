@@ -1,11 +1,11 @@
 import { z } from "zod";
-import type { EmbeddingModelRef } from "../llm/embedding/types.js";
+import { defaultEmbeddingModelRef, localEmbeddingModelIds, type EmbeddingModelRef } from "../llm/embedding/types.ts";
 
 export const embeddingModelRefSchema: z.ZodType<EmbeddingModelRef> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("auto") }).strict(),
   z.object({
     kind: z.literal("local"),
-    model: z.literal("multilingual-e5-small")
+    model: z.enum(localEmbeddingModelIds)
   }).strict(),
   z.object({
     kind: z.literal("provider"),
@@ -14,7 +14,7 @@ export const embeddingModelRefSchema: z.ZodType<EmbeddingModelRef> = z.discrimin
   }).strict()
 ]);
 
-export type { EmbeddingModelRef } from "../llm/embedding/types.js";
+export type { EmbeddingModelRef } from "../llm/embedding/types.ts";
 
 const rawMemoryPolicySchema = z.object({
   // enabled 是硬门禁；聊天级 use/contribute 覆盖不能绕过它。
@@ -26,7 +26,7 @@ const rawMemoryPolicySchema = z.object({
   memoryModel: z.string().min(1).optional(),
   rewriteModel: z.string().min(1).optional(),
   extractModel: z.string().min(1).optional(),
-  // 嵌入模型默认本地 multilingual-e5-small（可下载）；云端需 provider 已配置并经隐私确认。
+  // 缺省使用本地 E5；远端模型必须显式选择 Provider 或 auto。
   embeddingModel: embeddingModelRefSchema.optional(),
   similarityThreshold: z.number().min(0).max(1).default(0.1),
   // 外部网页、MCP/Plugin 与子代理结果默认不进入自动记忆候选。
@@ -50,8 +50,8 @@ export const memoryPolicySchema = rawMemoryPolicySchema.transform((policy): Memo
   // 缺少总开关的旧配置按两个自动开关的 OR 推导；显式关闭总开关时由迁移结果保留关闭语义。
   enabled: policy.enabled ?? (policy.useMemories || policy.generateMemories),
   // 历史配置可能已经有 context.memory，但没有 embeddingModel；默认仍必须是本地 E5。
-  embeddingModel: policy.embeddingModel ?? { kind: "auto" }
-})).default({
+  embeddingModel: policy.embeddingModel ?? { ...defaultEmbeddingModelRef }
+})).prefault({
   enabled: true,
   useMemories: true,
   generateMemories: true,
@@ -59,7 +59,7 @@ export const memoryPolicySchema = rawMemoryPolicySchema.transform((policy): Memo
   memoryModel: undefined,
   rewriteModel: undefined,
   extractModel: undefined,
-  embeddingModel: { kind: "auto" },
+  embeddingModel: { ...defaultEmbeddingModelRef },
   similarityThreshold: 0.1,
   excludeExternalContext: true,
   maxRecalled: 5,
@@ -133,7 +133,8 @@ export interface AgentPersonalizationState {
 }
 
 export const globalPersonalizationUpdateSchema = z.object({
-  memory: memoryPolicySchema.optional()
+  // Omitted updates must not apply the full policy default.
+  memory: memoryPolicySchema.nonoptional().optional()
 }).strict();
 
 export type GlobalPersonalizationUpdate = z.infer<typeof globalPersonalizationUpdateSchema>;
@@ -176,14 +177,6 @@ export function mergeChatPersonalizationOverride(
       ? current.contributeMemories
       : parsedPatch.contributeMemories
   });
-}
-
-export function personalizationMetadata(): PersonalizationMetadata {
-  return {};
-}
-
-export function metadataForPersonalization(): PersonalizationMetadata {
-  return {};
 }
 
 export function cloneChatPersonalizationOverride(

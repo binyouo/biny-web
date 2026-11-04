@@ -10,25 +10,13 @@ import type { Tool } from "./types.js";
 declare const updateTodosSchema: z.ZodObject<{
     todos: z.ZodArray<z.ZodObject<{
         content: z.ZodString;
-        status: z.ZodEnum<["pending", "in_progress", "completed"]>;
-    }, "strip", z.ZodTypeAny, {
-        status: "completed" | "pending" | "in_progress";
-        content: string;
-    }, {
-        status: "completed" | "pending" | "in_progress";
-        content: string;
-    }>, "many">;
-}, "strip", z.ZodTypeAny, {
-    todos: {
-        status: "completed" | "pending" | "in_progress";
-        content: string;
-    }[];
-}, {
-    todos: {
-        status: "completed" | "pending" | "in_progress";
-        content: string;
-    }[];
-}>;
+        status: z.ZodEnum<{
+            completed: "completed";
+            pending: "pending";
+            in_progress: "in_progress";
+        }>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 export type UpdateTodosArgs = z.infer<typeof updateTodosSchema>;
 export interface UpdateTodosResult {
     todos: Array<{

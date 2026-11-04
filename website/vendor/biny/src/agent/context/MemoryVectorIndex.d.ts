@@ -48,7 +48,7 @@ export declare class MemoryVectorIndex {
         entryId: string;
         embedding: Float32Array;
     }>;
-    status(): MemoryVectorIndexStatus;
+    status(entryIds?: ReadonlySet<string>): MemoryVectorIndexStatus;
     close(): void;
     private migrate;
     private ensureVectorTable;

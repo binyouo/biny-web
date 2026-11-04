@@ -372,8 +372,6 @@
 .download-heading h2 { font-weight: 600; letter-spacing: -.035em; font-size: clamp(32px, 4vw, 42px); line-height: 1.2; }
 .download-heading-meta { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
 .download-heading p { color: var(--ink-2); font-size: 16px; }
-.download-version { border: 1px solid var(--line-strong); border-radius: 5px; padding: 3px 8px; color: var(--ink-2); font-size: 12px; line-height: 1.5; }
-.download-version:hover { color: var(--ink); border-color: var(--ink-3); }
 .download-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .download-card { min-width: 0; min-height: 250px; padding: 25px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); }
 .download-card h3 { display: flex; align-items: center; gap: 12px; font-size: 17px; font-weight: 600; }

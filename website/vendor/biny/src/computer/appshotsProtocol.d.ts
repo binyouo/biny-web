@@ -1,15 +1,19 @@
 import { z } from "zod";
 export declare const appshotsSettingsSchema: z.ZodObject<{
     hotkey: z.ZodDefault<z.ZodString>;
-    target: z.ZodDefault<z.ZodEnum<["current", "new"]>>;
-}, "strict", z.ZodTypeAny, {
-    target: "current" | "new";
-    hotkey: string;
-}, {
-    target?: "current" | "new" | undefined;
-    hotkey?: string | undefined;
-}>;
+    target: z.ZodDefault<z.ZodEnum<{
+        current: "current";
+        new: "new";
+    }>>;
+}, z.core.$strict>;
 export type AppshotsSettings = z.infer<typeof appshotsSettingsSchema>;
+export declare const appshotsSettingsPatchSchema: z.ZodObject<{
+    hotkey: z.ZodOptional<z.ZodString>;
+    target: z.ZodOptional<z.ZodEnum<{
+        current: "current";
+        new: "new";
+    }>>;
+}, z.core.$strict>;
 export interface AppshotsState {
     settings: AppshotsSettings;
     active: boolean;
@@ -39,7 +43,7 @@ export type AppshotEvent = {
 };
 export interface AppshotsApi {
     state(): Promise<AppshotsState>;
-    settings(value: AppshotsSettings): Promise<AppshotsState>;
+    settings(value: Partial<AppshotsSettings>): Promise<AppshotsState>;
     prewarm(): Promise<AppshotsState>;
     capture(): Promise<AppshotsState>;
     attach(projectId: string, id: string): Promise<{

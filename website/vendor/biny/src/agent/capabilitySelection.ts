@@ -15,12 +15,31 @@ export const agentCapabilitySelectionSchema = z.object({
 
 /** 会话累计结果可超过单次手选上限，名称与模式校验仍保持一致。 */
 export const resolvedCapabilitySelectionSchema = agentCapabilitySelectionSchema.extend({
-  tools: z.union([capabilitySelectionModeSchema, capabilityNamesSchema])
+  tools: z.union([capabilitySelectionModeSchema, capabilityNamesSchema]),
+  skills: z.union([capabilitySelectionModeSchema, capabilityNamesSchema])
 });
 
 export type CapabilitySelectionMode = z.infer<typeof capabilitySelectionModeSchema>;
 export type CapabilitySelectionValue = z.infer<typeof capabilitySelectionValueSchema>;
 export type AgentCapabilitySelection = z.infer<typeof agentCapabilitySelectionSchema>;
+
+const toolCompanions = new Map<string, readonly string[]>([
+  ["Bash", ["ProcessStatus", "KillShell"]],
+  ["Task", ["TaskStatus"]],
+  ["WebSearch", ["WebFetch"]],
+  ["WebFetch", ["WebSearch"]],
+  ["WidgetRenderer", ["WidgetReadme"]]
+]);
+
+export function completeToolSelection(names: Iterable<string>, availableNames: ReadonlySet<string>): Set<string> {
+  const selected = new Set([...names].filter((name) => availableNames.has(name)));
+  for (const name of selected) {
+    for (const companion of toolCompanions.get(name) ?? []) {
+      if (availableNames.has(companion)) selected.add(companion);
+    }
+  }
+  return selected;
+}
 
 /** 将设置默认值或本次消息的选择解析成工具名称白名单；auto/all 返回 undefined 表示不裁剪。 */
 export function resolveCapabilityNames(

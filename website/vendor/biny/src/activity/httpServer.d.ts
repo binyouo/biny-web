@@ -9,7 +9,6 @@ import type { AgentModel } from "../agent/core/types.js";
 import { type ActivitySettings, type ActivitySettingsPatch } from "./settings.js";
 import { type ActivityAnalyzerDeps } from "./analyzer.js";
 import type { ActivityRuntimeSnapshot } from "./types.js";
-import { type CrystalHttpDependencies } from "../agent/context/crystalHttp.js";
 import type { EmbeddingModelRuntime } from "../llm/embedding/types.js";
 export interface ActivityHttpApiDependencies {
     /** 隔离运行时的 Agent 数据根；默认使用全局根。 */
@@ -22,7 +21,6 @@ export interface ActivityHttpApiDependencies {
     onAnalyzed?: ActivityAnalyzerDeps["onAnalyzed"];
     /** 服务持有显式分析后的投影及 ActivityStore 清理，关闭时收齐。 */
     scheduleProjection?: (task: Promise<void>) => void;
-    crystal?: CrystalHttpDependencies;
     getRuntimeSnapshot?(): ActivityRuntimeSnapshot | Promise<ActivityRuntimeSnapshot>;
     /** REST 专属前台状态；IPC 快照继续使用自身的展示模型。 */
     getFrontmost?(): {

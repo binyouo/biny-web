@@ -1,7 +1,7 @@
 /** 模型供应商连接、模型选择和凭据独立保存；失败保留当前编辑供重试。 */
 import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { NativeSelect } from "../NativeSelect.js";
-import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ModelProfile, ThinkingLevelMap } from "../../../../../config/schema.js";
 import type { ModelChoice } from "../../../../../llm/ModelManager.js";
 import { useFluidHoverItems } from "../../useFluidHoverItems.js";
@@ -167,9 +167,12 @@ export function ProviderSettings({
     const key = activeEntry?.key ?? "custom";
     setNotices((current) => ({ ...current, [key]: providerErrorMessage(message) }));
   }, [activeEntry?.key]);
-  // 已有选中从列表里消失（例如删除自定义端点后）时回退到第一行。
+  // 目录项启用后换成连接键，保留当前选择；真正删除的连接才回退到第一行。
   useEffect(() => {
-    if (activeKey !== undefined && !entries.some((row) => row.key === activeKey)) setActiveKey(undefined);
+    if (activeKey !== undefined && !entries.some((row) => row.key === activeKey)) {
+      const replacement = entries.find((row) => row.catalog?.id === activeKey)?.key;
+      setActiveKey((current) => current === activeKey ? replacement : current);
+    }
   }, [activeKey, entries]);
 
   // 切换服务商时详情面板回到顶部：新面板不应继承上一家的滚动位置。
@@ -186,13 +189,15 @@ export function ProviderSettings({
 
   // ── 即时提交：models 段整体计算（草稿待提交项 + 本次变更），交给 provider 串行落盘 ──
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   /** 一次提交一批模型变更；失败保留表单输入，不把候选投影为已保存配置。 */
   const applyModelBatch = useCallback(async (
     inputs: DesktopModelConfigurationInput[],
     removeAliases: string[] = []
   ): Promise<boolean> => {
-    if (!settingsDraft.draft) return false;
+    if (!settingsDraft.draft || savingRef.current) return false;
     const handles: string[] = [];
+    savingRef.current = true;
     setSaving(true);
     try {
       const upserts: DesktopModelConfigurationInput[] = [];
@@ -211,8 +216,8 @@ export function ProviderSettings({
       onNotify(providerErrorMessage(error));
       return false;
     } finally {
-      await Promise.all(handles.map((handle) => settingsDraft.releaseCredential(handle)));
-      setSaving(false);
+      try { await Promise.all(handles.map((handle) => settingsDraft.releaseCredential(handle))); }
+      finally { savingRef.current = false; setSaving(false); }
     }
   }, [onNotify, projectId, settingsDraft]);
 
@@ -277,10 +282,6 @@ export function ProviderSettings({
       reasoningSummary: model.capabilities?.reasoningSummary,
       supportsVision: model.capabilities?.vision,
       supportsAudio: model.capabilities?.audio,
-      contextWindow: model.contextWindow,
-      maxInputTokens: model.maxInputTokens,
-      maxOutputTokens: model.maxOutputTokens,
-      limits: model.limits,
       thinkingLevelMap: model.thinkingLevelMap,
       apiBackend: model.apiBackend,
       ...extra
@@ -304,8 +305,10 @@ export function ProviderSettings({
   const [testResult, setTestResult] = useState<{ alias: string; result: DesktopModelConnectionTestResult }>();
   const [testMenuOpen, setTestMenuOpen] = useState(false);
   const testGenerationRef = useRef(0);
+  const testOwnerRef = useRef<{ providerAlias: string; modelAlias: string; modelId: string; generation: number } | undefined>(undefined);
   useEffect(() => {
     testGenerationRef.current += 1;
+    testOwnerRef.current = undefined;
     setTestingAlias(undefined);
     setTestResult(undefined);
     setTestMenuOpen(false);
@@ -328,10 +331,6 @@ export function ProviderSettings({
       reasoningSummary: model.capabilities?.reasoningSummary,
       supportsVision: model.capabilities?.vision,
       supportsAudio: model.capabilities?.audio,
-      contextWindow: model.contextWindow,
-      maxInputTokens: model.maxInputTokens,
-      maxOutputTokens: model.maxOutputTokens,
-      limits: model.limits,
       thinkingLevelMap: model.thinkingLevelMap,
       apiBackend: model.apiBackend
     };
@@ -342,6 +341,7 @@ export function ProviderSettings({
     if (!configuration || !group) return;
     const providerKey = group.provider;
     const generation = ++testGenerationRef.current;
+    testOwnerRef.current = { providerAlias: providerKey, modelAlias: configuration.alias, modelId: configuration.model, generation };
     setTestingAlias(providerKey);
     setTestResult(undefined);
     try {
@@ -565,7 +565,7 @@ export function ProviderSettings({
 
   // ── 模型开关（单个 toggle 与全选/批量启停共用；一批变更只发一次事务） ──
   const toggleModels = useCallback(async (catalogModels: CatalogModel[], enabled: boolean): Promise<void> => {
-    if (!group || !catalog || !catalogModels.length) return;
+    if (!group || !catalog || !catalogModels.length || savingRef.current) return;
     const draft = settingsDraft.draft;
     if (!draft) return;
     const configuredModelIds = new Set(group.models.map((model) => model.model));
@@ -577,6 +577,8 @@ export function ProviderSettings({
         modelsRequiresApiKey: catalog.modelsRequiresApiKey
       })) : [];
     // 开关直接提交，不先写入手动保存草稿，避免底栏短暂变成「未保存」。
+    // React 尚未刷新 disabled 时也要拒绝重复输入，不能把它排成另一笔配置事务。
+    savingRef.current = true;
     setSaving(true);
     try {
       await settingsDraft.saveModels((snapshot) => {
@@ -587,6 +589,7 @@ export function ProviderSettings({
     } catch (error) {
       onNotify(providerErrorMessage(error));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [catalog, connection, group, onNotify, settingsDraft]);
@@ -655,7 +658,6 @@ export function ProviderSettings({
     model: ModelChoice,
     options: {
       profile: ModelProfile | undefined;
-      vision: boolean;
       tools: boolean;
       reasoning: boolean;
       headers: Record<string, string>;
@@ -667,7 +669,6 @@ export function ProviderSettings({
     const format = options.apiFormat === undefined ? undefined : apiFormatOption(options.apiFormat);
     const input = choiceUpsertInput(model, {
       supportsTools: options.tools,
-      supportsVision: options.vision,
       supportsThinking: options.reasoning,
       // 空对象明确清空模型级 Header；undefined 在普通更新中表示保留。
       headers: options.headers,
@@ -677,29 +678,40 @@ export function ProviderSettings({
       modelProfile: undefined
     });
     if (!input) return;
+    const owner = testOwnerRef.current;
+    const eligibleOwner = owner?.providerAlias === providerAlias && owner.modelAlias === model.alias && owner.modelId === model.model
+      ? owner : undefined;
     const result = await settingsDraft.saveModels(snapshot => {
       const previous = snapshot.models.modelProfiles?.[providerAlias]?.[model.model];
       const profile = { ...options.profile, showInPicker: previous?.showInPicker };
       return { upserts: [{ ...input, modelProfile: profile }], removeAliases: [] };
     });
     if (result?.status !== "committed") throw new Error(result?.message ?? "模型选项保存失败，请重试。");
+    // 只退休本次保存前被测模型的结果；旧保存不能清掉切换后的新测试。
+    if (eligibleOwner && testOwnerRef.current === eligibleOwner && testGenerationRef.current === eligibleOwner.generation) {
+      testGenerationRef.current += 1;
+      testOwnerRef.current = undefined;
+      setTestingAlias(undefined);
+      setTestResult(undefined);
+    }
   }, [catalog, choiceUpsertInput, connection, settingsDraft]);
 
   const deleteConnection = useCallback(async (): Promise<void> => {
-    if (!group || saving || !settingsDraft.draft) return;
+    if (!group || savingRef.current || !settingsDraft.draft) return;
     if (!window.confirm(`确定要删除服务商「${catalog?.label ?? group.provider}」吗？\n\n将删除此连接的模型与本地凭据引用，此操作无法撤销。`)) return;
     if (group.models.length > 0 && models.length <= group.models.length) {
       onNotify("至少需要保留一个模型连接");
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       if (!await flushEditorRef.current()) return;
       const result = await settingsDraft.saveModels({ upserts: [], removeAliases: [], removeProviderAliases: [group.provider] });
       if (result?.status !== "committed") onNotify(result?.message ?? "删除服务商失败，请重试");
     } catch (error) { onNotify(providerErrorMessage(error)); }
-    finally { setSaving(false); }
-  }, [catalog?.label, group, models.length, onNotify, saving, settingsDraft]);
+    finally { savingRef.current = false; setSaving(false); }
+  }, [catalog?.label, group, models.length, onNotify, settingsDraft]);
 
   // ── 启用服务商（未连接的 API 条目）：用种子模型建连接，密钥随后在表单里补 ──
   const enableProvider = useCallback(async (entryCatalog: ProviderCatalogItem): Promise<void> => {
@@ -716,7 +728,6 @@ export function ProviderSettings({
       })
     ]);
     if (result) {
-      setActiveKey(`provider:${alias}`);
       void refreshCatalog(alias, { force: true });
     }
   }, [applyModelBatch, defaultModelAlias, refreshCatalog]);
@@ -790,6 +801,8 @@ export function ProviderSettings({
   }, [connectionInfos, creating, onNotify, projectId, settingsDraft]);
 
   // ── 订阅登录 ──
+  const loginViewKey = catalog?.loginProvider ? JSON.stringify([catalog.loginProvider, providerAlias]) : undefined;
+  const loginViewKeyRef = useRef(loginViewKey);
   const [loginStage, setLoginStage] = useState<"idle" | "opening" | "waiting" | "submitted">("idle");
   const [loginRequest, setLoginRequest] = useState<DesktopModelLoginStartResult>();
   const [loginError, setLoginError] = useState<string>();
@@ -818,6 +831,13 @@ export function ProviderSettings({
   useEffect(() => {
     cancelLoginRef.current = () => resetLogin(true);
   }, [resetLogin]);
+  useLayoutEffect(() => () => resetLogin(true), [resetLogin]);
+  useLayoutEffect(() => {
+    if (loginViewKeyRef.current === loginViewKey) return;
+    loginViewKeyRef.current = loginViewKey;
+    // 只在新卡片提交后放弃旧登录，避免旧请求或输入先显示到另一家服务商。
+    resetLogin(true);
+  }, [loginViewKey, resetLogin]);
 
   const completeLoginRequest = useCallback(async (
     entryCatalog: ProviderCatalogItem,
@@ -831,7 +851,10 @@ export function ProviderSettings({
     try {
       const result = await onCompleteLogin(entryCatalog.loginProvider, request.authRequestId,
         request.method === "paste-code" ? pastedAuthorization : undefined);
-      if (generation !== loginGenerationRef.current) return;
+      if (generation !== loginGenerationRef.current) {
+        await settingsDraft.releaseCredential(result.handle);
+        return;
+      }
       // 一次性登录凭据只随本次模型增量提交；失败不伪报连接成功。
       const alias = providerAliasFor(entryCatalog, entryCatalog.baseUrl);
       settingsDraft.addOauthCredentialHandle(result.handle);
@@ -886,6 +909,7 @@ export function ProviderSettings({
         setLoginStage("waiting");
       }
     } catch (error) {
+      if (generation !== loginGenerationRef.current) return;
       loginActionRef.current = false;
       setLoginStage("idle");
       setLoginError(error instanceof Error ? error.message : String(error));
@@ -893,7 +917,9 @@ export function ProviderSettings({
   }, [completeLoginRequest, onStartLogin]);
 
   const submitLogin = useCallback(async (entryCatalog: ProviderCatalogItem): Promise<void> => {
-    if (!entryCatalog.loginProvider || !loginRequest) return;
+    if (!entryCatalog.loginProvider || !loginRequest
+      || loginProviderRef.current !== entryCatalog.loginProvider
+      || loginRequestRef.current !== loginRequest) return;
     await completeLoginRequest(entryCatalog, loginRequest, authorizationCode);
   }, [authorizationCode, completeLoginRequest, loginRequest]);
 
@@ -914,11 +940,11 @@ export function ProviderSettings({
   return (
     <div className="provider-settings">
       <header className="provider-settings-toolbar">
-        <label className="provider-list-search">
+        <label className="settings-search-field provider-list-search">
           <Icon name="search" size={14} />
-          <input onChange={(event) => setQuery(event.target.value)} placeholder="搜索服务商" value={query} />
+          <input className="settings-field" onChange={(event) => setQuery(event.target.value)} placeholder="搜索服务商" value={query} />
         </label>
-        <button className="settings-primary-button" onClick={openCreateDialog} type="button"><Icon name="add" size={14} />添加自定义服务商</button>
+        <button className="settings-action settings-primary-button" onClick={openCreateDialog} type="button"><Icon name="add" size={14} />添加自定义服务商</button>
       </header>
       <aside aria-label="服务商列表" className="provider-list-pane">
         <div className="provider-list-rows" role="tablist">
@@ -999,6 +1025,7 @@ export function ProviderSettings({
             authorizationCode={authorizationCode}
             availableModels={availableModels}
             fetchingCatalog={Boolean(group && fetchingProviders[group.provider])}
+            saving={saving}
             onAuthorizationCode={setAuthorizationCode}
             onStart={() => activeEntry.catalog && void startLogin(activeEntry.catalog)}
             onSubmit={() => activeEntry.catalog && void submitLogin(activeEntry.catalog)}
@@ -1072,8 +1099,8 @@ export function ProviderSettings({
             <div className="provider-enable-card">
               <strong>启用 {catalog.label}</strong>
               <p>{catalog.requiresApiKey ? "正式使用前需要在下方粘贴 API Key。" : "该服务无需密钥。"}</p>
-              <button className="settings-primary-button" disabled={saving} onClick={() => void enableProvider(catalog)} type="button">
-                {saving ? "启用中…" : "启用服务商"}
+              <button aria-busy={saving} className="settings-action settings-primary-button" disabled={saving} onClick={() => void enableProvider(catalog)} type="button">
+                启用服务商
               </button>
               {apiKeyUrl ? (
                 <a className="settings-link provider-key-link" href={apiKeyUrl} onClick={(event) => { event.preventDefault(); void onOpenExternal(apiKeyUrl); }} rel="noreferrer">获取密钥<Icon name="external" size={11} /></a>
@@ -1125,6 +1152,7 @@ function LoginProviderPanel({
   authorizationCode,
   availableModels,
   fetchingCatalog,
+  saving,
   onAuthorizationCode,
   onStart,
   onSubmit,
@@ -1153,6 +1181,7 @@ function LoginProviderPanel({
   authorizationCode: string;
   availableModels: CatalogModel[];
   fetchingCatalog: boolean;
+  saving: boolean;
   onAuthorizationCode(value: string): void;
   onStart(): void;
   onSubmit(): void;
@@ -1224,11 +1253,11 @@ function LoginProviderPanel({
         {authenticated ? (
           <>
             <p>{oauthExpiryHint(connection?.oauthExpiresAt)}</p>
-            <button className="ghost-button" onClick={onRelogin} type="button">重新登录</button>
+            <button className="settings-action settings-secondary-button ghost-button" onClick={onRelogin} type="button">重新登录</button>
           </>
         ) : !waiting ? (
           <>
-            <button className="settings-primary-button" onClick={onStart} type="button">登录 {catalog.label}</button>
+            <button className="settings-action settings-primary-button" onClick={onStart} type="button">登录 {catalog.label}</button>
           </>
         ) : (
           <p>{usesPasteCode ? "请在浏览器完成登录后粘贴授权码。" : stage === "submitted" ? "已收到浏览器回调，正在自动验证账号。" : "请在弹出的浏览器窗口完成登录，浏览器会自动返回此应用。"}</p>
@@ -1244,8 +1273,8 @@ function LoginProviderPanel({
               value={authorizationCode}
             />
             <div className="login-code-actions">
-              <button className="settings-primary-button" disabled={!authorizationCode.trim() || stage === "submitted"} onClick={onSubmit} type="button">提交授权码</button>
-              <button onClick={onStart} type="button">重新开始登录</button>
+              <button className="settings-action settings-primary-button" disabled={!authorizationCode.trim() || stage === "submitted"} onClick={onSubmit} type="button">提交授权码</button>
+              <button className="settings-action settings-secondary-button" onClick={onStart} type="button">重新开始登录</button>
             </div>
           </div>
         ) : null}
@@ -1261,6 +1290,7 @@ function LoginProviderPanel({
           query={modelQuery}
           onQuery={setModelQuery}
           fetchingCatalog={fetchingCatalog}
+          saving={saving}
           onRefreshCatalog={onRefreshCatalog}
           onToggleModel={onToggleModel}
           onToggleMany={onToggleMany}
@@ -1407,7 +1437,7 @@ function ConnectedProviderPanel({
         <div className="provider-row-item">
           <label className="provider-row-label" htmlFor={`${fieldPrefix}-api-format`}>API 格式</label>
           <NativeSelect
-            className="connection-select"
+            className="settings-field connection-select"
             id={`${fieldPrefix}-api-format`}
             onChange={(event) => {
               const next = event.target.value as ConnectionApiFormat;
@@ -1482,7 +1512,7 @@ function ConnectedProviderPanel({
             </div>
             {status ? <span className={`status-pill is-${status.tone}`}>{status.label}</span> : null}
           </div>
-          <button className="ghost-button" onClick={onRelogin} type="button">重新登录</button>
+          <button className="settings-action settings-secondary-button ghost-button" onClick={onRelogin} type="button">重新登录</button>
         </div>
       ) : (
         <div className="provider-rows">
@@ -1495,10 +1525,10 @@ function ConnectedProviderPanel({
             </div>
           )}
           {catalog.connectionMode === "api" ? (
-            <details className="provider-endpoint-details">
-              <summary><Icon name="sliders" size={15} /><span>API 端点</span><small>高级</small><Icon name="chevron" size={13} /></summary>
+            <section className="provider-connection-section">
+              <h4>API 端点</h4>
               {connectionFields}
-            </details>
+            </section>
           ) : null}
           <div className="provider-row-item">
             <div className="provider-row-heading">
@@ -1555,6 +1585,7 @@ function ConnectedProviderPanel({
         query={modelQuery}
         onQuery={setModelQuery}
         fetchingCatalog={fetchingCatalog}
+        saving={saving}
         onRefreshCatalog={onRefreshCatalog}
         onToggleModel={onToggleModel}
         onToggleMany={onToggleMany}
@@ -1572,7 +1603,7 @@ function ConnectedProviderPanel({
             <strong>删除连接</strong>
             <span>删除此连接的全部模型与本地凭据引用，无法撤销。</span>
           </div>
-          <button className="danger-button" disabled={saving} onClick={onDeleteConnection} type="button">
+          <button className="settings-action settings-danger-button danger-button" disabled={saving} onClick={onDeleteConnection} type="button">
             删除
           </button>
         </section>
@@ -1629,12 +1660,13 @@ function TestConnectionButton({
       <Tooltip delay={150} content={disabledReason ?? (target ? "测试模型请求" : "先获取或添加模型，再测试模型请求")}>
         <button
           aria-label="测试连接"
-          className={`provider-test-button${testing ? " is-testing" : ""}`}
+          className={`settings-action settings-secondary-button provider-test-button provider-connection-test${testing ? " is-testing" : ""}`}
           disabled={Boolean(disabledReason) || testing || !target || !testConfiguration(target)}
           onClick={() => target && void onTest(target)}
           type="button"
         >
           <ModelTestStatusIcon lastResult={lastResult} testing={testing} />
+          <span>测试</span>
         </button>
       </Tooltip>
     );
@@ -1649,12 +1681,13 @@ function TestConnectionButton({
         <button
           aria-expanded={open}
           aria-label="测试连接"
-          className={`provider-test-button${testing ? " is-testing" : ""}`}
+          className={`settings-action settings-secondary-button provider-test-button provider-connection-test${testing ? " is-testing" : ""}`}
           disabled={testing || Boolean(disabledReason)}
           onClick={() => onOpen(!open)}
           type="button"
         >
           <ModelTestStatusIcon lastResult={lastResult} testing={testing} />
+          <span>测试</span>
           <Icon className="provider-test-caret" name="chevron" size={11} />
         </button>
       </Tooltip>
@@ -1704,6 +1737,7 @@ function ModelsSection({
   query,
   onQuery,
   fetchingCatalog,
+  saving,
   onRefreshCatalog,
   onToggleModel,
   onToggleMany,
@@ -1719,6 +1753,7 @@ function ModelsSection({
   query: string;
   onQuery(value: string): void;
   fetchingCatalog: boolean;
+  saving: boolean;
   onRefreshCatalog(): void;
   onToggleModel(model: CatalogModel, enabled: boolean): Promise<void>;
   onToggleMany(models: CatalogModel[], enabled: boolean): Promise<void>;
@@ -1742,14 +1777,13 @@ function ModelsSection({
   }, [manualOpen]);
   const choiceByModel = new Map(enabledModels.map((model) => [model.model, model] as const));
   const enabledChoiceByModel = new Map(enabledModels.filter((model) => model.showInPicker !== false).map((model) => [model.model, model] as const));
-  // 已启用模型置顶，同组保持目录顺序；每次切换后重新排序，不重复展示。
-  const orderedModels = [...models].sort((left, right) =>
-    Number(enabledChoiceByModel.has(right.id)) - Number(enabledChoiceByModel.has(left.id))
-  );
+  // 行序固定为目录顺序，不按启用状态重排：开关一个模型就把它从当前位置挪到列表另一头，
+  // 会让正在点的行从光标下跳走、滚动位置一起丢失，连续启用多个模型时每次都要重新找位置。
+  // mergeAvailableModels 已按同一规则产出顺序，这里直接沿用。
   // 全选只作用于当前可见（搜索过滤后）的模型，大批量启用也在一次事务里完成。
   const allVisibleEnabled = models.length > 0 && models.every((model) => enabledChoiceByModel.has(model.id));
   const submitManual = async (): Promise<void> => {
-    if (!manualModelId.trim() || adding) return;
+    if (!manualModelId.trim() || adding || saving) return;
     setAdding(true);
     try {
       if (await onSubmitManualModel(manualDisplayName)) setManualDisplayName("");
@@ -1760,18 +1794,18 @@ function ModelsSection({
       <CatalogFeedback />
       <div className="provider-models-head">
         <div className="provider-models-heading"><h4>模型</h4><span className="provider-model-count">{query.trim() ? `${String(models.length)} 个结果` : `${String(models.length)} 个 · 已选择 ${String(enabledChoiceByModel.size)} 个`}</span></div>
-        <button className="ghost-button" disabled={fetchingCatalog} onClick={onRefreshCatalog} type="button" aria-label="获取模型">
-          <Icon name="refresh" size={13} />{fetchingCatalog ? "获取中…" : "获取"}
+        <button aria-busy={fetchingCatalog} className="settings-action settings-secondary-button ghost-button" disabled={fetchingCatalog} onClick={onRefreshCatalog} type="button" aria-label="获取模型">
+          <Icon name="refresh" size={13} />获取
         </button>
       </div>
       {models.length > 0 || query.trim() ? (
-        <label className="provider-model-search">
+        <label className="settings-search-field provider-model-search">
           <Icon name="search" size={13} />
-          <input aria-label="搜索模型" onChange={(event) => onQuery(event.target.value)} placeholder="搜索模型…" value={query} />
+          <input className="settings-field" aria-label="搜索模型" onChange={(event) => onQuery(event.target.value)} placeholder="搜索模型…" value={query} />
         </label>
       ) : null}
       <div className="provider-model-list">
-        {orderedModels.map((model) => {
+        {models.map((model) => {
           const choice = choiceByModel.get(model.id);
           const enabled = enabledChoiceByModel.has(model.id);
           // 行结构：左侧两段分层（名称行 / 徽标+ID 行），右侧操作区固定
@@ -1789,39 +1823,39 @@ function ModelsSection({
                 </div>
               </div>
               <div className="provider-model-actions">
-                <Tooltip delay={150} content={choice ? "模型选项" : "启用模型后可调整选项"}>
+                <button
+                  aria-label={choice ? `${model.displayName} 模型选项` : "启用模型后可调整模型选项"}
+                  title={choice ? "模型选项" : "启用模型后可调整选项"}
+                  className="icon-button"
+                  disabled={!choice || saving}
+                  onClick={() => { if (choice) onOpenModelOptions(choice); }}
+                  type="button"
+                >
+                  <Icon name="sliders" size={13} />
+                </button>
+                {model.isManual && choice ? (
                   <button
-                    aria-label={choice ? `${model.displayName} 模型选项` : "启用模型后可调整模型选项"}
+                    aria-label={`删除手动模型 ${model.displayName}`}
+                    title="删除手动模型"
                     className="icon-button"
-                    disabled={!choice}
-                    onClick={() => { if (choice) onOpenModelOptions(choice); }}
+                    disabled={saving}
+                    onClick={() => void onRemoveModel(choice)}
                     type="button"
                   >
-                    <Icon name="sliders" size={13} />
+                    <Icon name="trash" size={13} />
                   </button>
-                </Tooltip>
-                {model.isManual && choice ? (
-                  <Tooltip delay={150} content="删除手动模型">
-                    <button
-                      aria-label={`删除手动模型 ${model.displayName}`}
-                      className="icon-button"
-                      onClick={() => void onRemoveModel(choice)}
-                      type="button"
-                    >
-                      <Icon name="trash" size={13} />
-                    </button>
-                  </Tooltip>
                 ) : null}
                 <button
                   aria-checked={enabled}
                   aria-label={`${enabled ? "停用" : "启用"} ${model.displayName}`}
                   aria-describedby={`${model.id.replace(/[^a-z0-9_-]/gi, "-")}-meta`}
-                  className={`model-toggle${enabled ? " is-on" : ""}`}
+                  className={`settings-switch model-toggle${enabled ? " is-on" : ""}`}
+                  disabled={saving}
                   onClick={() => { void onToggleModel(model, !enabled); }}
                   role="switch"
                   type="button"
                 >
-                  <span className="model-toggle-thumb" />
+
                 </button>
               </div>
             </div>
@@ -1835,17 +1869,17 @@ function ModelsSection({
         ) : null}
       </div>
       <div className="provider-model-tools">
-        <button className="settings-link" type="button" disabled={adding} aria-label={manualOpen ? "收起手动添加" : "手动添加模型"} aria-expanded={manualOpen} onClick={() => {
+        <button className="settings-action settings-text-action settings-link" type="button" disabled={adding || saving} aria-label={manualOpen ? "收起手动添加" : "手动添加模型"} aria-expanded={manualOpen} onClick={() => {
           focusManualRef.current = !manualOpen;
           setManualOpen(!manualOpen);
-        }}><Icon name="add" size={12} />{manualOpen ? "收起手动添加" : "手动添加"}</button>
-        {models.length > 0 ? <button className="settings-link" type="button" disabled={fetchingCatalog} onClick={() => void onToggleMany(models, !allVisibleEnabled)}>{allVisibleEnabled ? "取消全选" : "全选"}{query.trim() ? "搜索结果" : ""}</button> : null}
+        }}><Icon name="add" size={12} /><span className="button-state-label"><span aria-hidden={manualOpen}>手动添加</span><span aria-hidden={!manualOpen}>收起手动添加</span></span></button>
+        {models.length > 0 ? <button className="settings-action settings-text-action settings-link" type="button" disabled={fetchingCatalog || saving} aria-busy={saving} onClick={() => void onToggleMany(models, !allVisibleEnabled)}><span className="button-state-label"><span aria-hidden={allVisibleEnabled}>全选{query.trim() ? "搜索结果" : ""}</span><span aria-hidden={!allVisibleEnabled}>取消全选{query.trim() ? "搜索结果" : ""}</span></span></button> : null}
       </div>
       {manualOpen ? <div className="provider-manual-row">
         <input
           id={manualInputId}
           ref={manualInputRef}
-          disabled={adding}
+          disabled={adding || saving}
           aria-label="手动添加模型 ID"
           onChange={(event) => onManualModelId(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submitManual(); } }}
@@ -1853,16 +1887,16 @@ function ModelsSection({
           value={manualModelId}
         />
         <input
-          disabled={adding}
+          disabled={adding || saving}
           aria-label="手动添加模型显示名称"
           onChange={(event) => setManualDisplayName(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void submitManual(); } }}
           placeholder="显示名称（可选）"
           value={manualDisplayName}
         />
-        <button className="ghost-button" disabled={adding || !manualModelId.trim()} onClick={() => void submitManual()} type="button">
+        <button aria-busy={adding} className="settings-action settings-secondary-button ghost-button" disabled={adding || saving || !manualModelId.trim()} onClick={() => void submitManual()} type="button">
           <Icon name="add" size={13} />
-          {adding ? "添加中…" : "添加"}
+          添加
         </button>
       </div> : null}
     </section>
@@ -1878,24 +1912,16 @@ function ModelRowBadges({ model }: { model: CatalogModel }): React.JSX.Element {
   return (
     <>
       {model.supportsVision ? (
-        <Tooltip delay={150} content="支持图片输入" key="vision">
-          <span className="provider-model-cap"><Icon name="eye" size={11} /></span>
-        </Tooltip>
+        <span className="provider-model-cap" role="img" title="支持图片输入" aria-label="支持图片输入"><Icon name="eye" size={11} /></span>
       ) : null}
       {model.supportsTools !== false ? (
-        <Tooltip delay={150} content="支持工具调用" key="tools">
-          <span className="provider-model-cap"><Icon name="wrench" size={11} /></span>
-        </Tooltip>
+        <span className="provider-model-cap" role="img" title="支持工具调用" aria-label="支持工具调用"><Icon name="wrench" size={11} /></span>
       ) : null}
       {model.supportsThinking ? (
-        <Tooltip delay={150} content="支持扩展思考/推理" key="thinking">
-          <span className="provider-model-cap"><Icon name="brain-spark" size={11} /></span>
-        </Tooltip>
+        <span className="provider-model-cap" role="img" title="支持扩展思考/推理" aria-label="支持扩展思考/推理"><Icon name="brain-spark" size={11} /></span>
       ) : null}
       {context ? (
-        <Tooltip delay={150} content={`${context.tokens.toLocaleString("zh-CN")} token 上下文窗口`} key="context">
-          <span className="provider-model-ctx">{context.label}</span>
-        </Tooltip>
+        <span className="provider-model-ctx" title={`${context.tokens.toLocaleString("zh-CN")} token 上下文窗口`}>{context.label}</span>
       ) : null}
     </>
   );
@@ -1952,6 +1978,7 @@ function CreateCustomProviderDialog({ apiFormatOptions: formatOptions, creating,
               <label className="provider-row-label" htmlFor="custom-provider-create-name">名称</label>
               <input
                 autoFocus
+                disabled={creating}
                 id="custom-provider-create-name"
                 onChange={(event) => setDisplayName(event.target.value)}
                 placeholder="例如 我的中转站"
@@ -1960,12 +1987,13 @@ function CreateCustomProviderDialog({ apiFormatOptions: formatOptions, creating,
             </div>
             <div className="provider-row-item">
               <label className="provider-row-label" htmlFor="custom-provider-create-icon">图标</label>
-              <ProviderIconPicker onChange={(iconId) => setIcon(iconId)} triggerId="custom-provider-create-icon" value={icon} />
+              <ProviderIconPicker disabled={creating} onChange={(iconId) => setIcon(iconId)} triggerId="custom-provider-create-icon" value={icon} />
               <div className="provider-row-hint">为该服务商选择品牌图标。</div>
             </div>
             <div className="provider-row-item">
               <label className="provider-row-label" htmlFor="custom-provider-create-url">服务地址</label>
               <input
+                disabled={creating}
                 id="custom-provider-create-url"
                 onChange={(event) => setBaseUrl(event.target.value)}
                 placeholder="https://api.example.com/v1"
@@ -1980,29 +2008,30 @@ function CreateCustomProviderDialog({ apiFormatOptions: formatOptions, creating,
               <div className="secret-input-row">
                 <input
                   autoComplete="off"
+                  disabled={creating}
                   id="custom-provider-create-key"
                   onChange={(event) => setApiKey(event.target.value)}
                   placeholder="留空，稍后在面板中填写"
                   type={showKey ? "text" : "password"}
                   value={apiKey}
                 />
-                <button className="icon-button" type="button" aria-label={showKey ? "隐藏密钥" : "显示密钥"} onClick={() => setShowKey((value) => !value)}><Icon name={showKey ? "eye-off" : "eye"} size={16} /></button>
+                <button className="icon-button" disabled={creating} type="button" aria-label={showKey ? "隐藏密钥" : "显示密钥"} onClick={() => setShowKey((value) => !value)}><Icon name={showKey ? "eye-off" : "eye"} size={16} /></button>
               </div>
             </div>
             <div className="provider-row-item">
               <label className="provider-row-label" htmlFor="custom-provider-create-format">API 格式</label>
-              <NativeSelect className="connection-select" id="custom-provider-create-format" onChange={(event) => setFormat(event.target.value as ApiFormatId)} value={format}>
+              <NativeSelect disabled={creating} className="settings-field connection-select" id="custom-provider-create-format" onChange={(event) => setFormat(event.target.value as ApiFormatId)} value={format}>
                 {formatOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
               </NativeSelect>
               <div className="provider-row-hint">{apiFormatOption(format).description}</div>
             </div>
           </div>
-          <p className="provider-dialog-hint">创建后进入服务商面板，用「获取」或手动添加启用模型。</p>
+          <p className="provider-dialog-hint">创建后可获取或手动添加模型。</p>
         </div>
 
         <footer>
-          <button className="ghost-button" disabled={creating} onClick={onCancel} type="button">取消</button>
-          <button className="settings-primary-button" disabled={!canSubmit} type="submit">{creating ? "添加中…" : "添加"}</button>
+          <button className="settings-action settings-secondary-button ghost-button" disabled={creating} onClick={onCancel} type="button">取消</button>
+          <button aria-busy={creating} className="settings-action settings-primary-button" disabled={!canSubmit} type="submit">添加</button>
         </footer>
       </form>
     </SettingsDetailLayer>
@@ -2048,7 +2077,7 @@ function hostnameSlug(baseUrl: string): string {
   }
 }
 
-/** 模型设置：默认展示能力，高级覆盖按需展开；所有编辑仍在保存时一次提交。 */
+/** 模型设置直接展示参数；所有编辑仍在保存时一次提交。 */
 function ModelOptionsDialog({
   apiFormat,
   apiFormatOptions: formatOptions,
@@ -2065,7 +2094,6 @@ function ModelOptionsDialog({
   onClose(): void;
   onSave(options: {
     profile: ModelProfile | undefined;
-    vision: boolean;
     tools: boolean;
     reasoning: boolean;
     headers: Record<string, string>;
@@ -2081,12 +2109,13 @@ function ModelOptionsDialog({
   // 能力的「自动」基准来自目录（目录候选默认都按支持工具处理）；开关初值取当前生效值
   // （显式覆盖优先，否则沿用自动推导）。
   const autoCapabilities = {
-    vision: autoModel?.supportsVision ?? false,
     tools: true,
     reasoning: autoModel?.supportsThinking ?? false
   };
+  const [vision, setVision] = useState<"auto" | "enabled" | "disabled">(
+    savedProfile?.capabilities?.vision === undefined ? "auto" : savedProfile.capabilities.vision ? "enabled" : "disabled"
+  );
   const [capabilities, setCapabilities] = useState({
-    vision: target.model.capabilities?.vision ?? autoCapabilities.vision,
     tools: target.model.capabilities?.tools ?? target.model.supportsTools ?? true,
     reasoning: target.model.capabilities?.reasoning ?? target.model.efforts.length > 0
   });
@@ -2094,10 +2123,10 @@ function ModelOptionsDialog({
   const [headersError, setHeadersError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
-  const hasAdvancedOverrides = [draft.contextWindow, draft.maxInputTokens, draft.maxOutputTokens, ...Object.values(draft.thinkingLevelMap)].some((value) => value.trim().length > 0)
+  const hasProfileOverrides = [draft.contextWindow, draft.maxInputTokens, draft.maxOutputTokens, ...Object.values(draft.thinkingLevelMap)].some((value) => value.trim().length > 0)
     || formatOverride !== "provider_default"
     || headersText.trim().length > 0;
-  const hasOverrides = hasAdvancedOverrides || capabilities.vision !== autoCapabilities.vision
+  const hasOverrides = hasProfileOverrides || vision !== "auto"
     || capabilities.tools !== autoCapabilities.tools
     || capabilities.reasoning !== autoCapabilities.reasoning;
 
@@ -2105,6 +2134,7 @@ function ModelOptionsDialog({
   const resetToDefault = (): void => {
     setDraft(modelProfileFieldDraftFrom(undefined));
     setCapabilities(autoCapabilities);
+    setVision("auto");
     setFormatOverride("provider_default");
     setHeadersText("");
     setHeadersError(undefined);
@@ -2134,12 +2164,11 @@ function ModelOptionsDialog({
           ...modelProfileFromFieldDraft(draft),
           capabilities: {
             ...savedProfile?.capabilities,
-            vision: capabilities.vision === autoCapabilities.vision ? undefined : capabilities.vision,
+            vision: vision === "auto" ? undefined : vision === "enabled",
             tools: capabilities.tools === autoCapabilities.tools ? undefined : capabilities.tools,
             reasoning: capabilities.reasoning === autoCapabilities.reasoning ? undefined : capabilities.reasoning
           }
         },
-        vision: capabilities.vision,
         tools: capabilities.tools,
         reasoning: capabilities.reasoning,
         headers,
@@ -2156,7 +2185,6 @@ function ModelOptionsDialog({
         aria-label="模型设置"
         aria-modal="true"
         className="provider-dialog"
-        onInvalid={(event) => { if (event.target instanceof HTMLInputElement) event.target.closest("details")?.setAttribute("open", ""); }}
         onSubmit={(event) => { event.preventDefault(); void save(); }}
         role="dialog"
       >
@@ -2169,47 +2197,51 @@ function ModelOptionsDialog({
         </header>
 
         <div className="provider-dialog-body">
-          <p className="provider-dialog-hint">默认使用推荐配置，通常无需修改。</p>
           <section className="provider-dialog-section">
             <div className="provider-dialog-section-head">
               <h5>模型能力</h5>
               <p>按模型实际支持的功能设置，开启不会增加模型本身的能力。</p>
             </div>
             <div className="provider-cap-grid">
-              <CapabilityOption icon="eye" label="图片理解" onChange={(value) => setCapabilities((current) => ({ ...current, vision: value }))} value={capabilities.vision} />
-              <CapabilityOption icon="wrench" label="工具调用" onChange={(value) => setCapabilities((current) => ({ ...current, tools: value }))} value={capabilities.tools} />
-              <CapabilityOption icon="brain-spark" label="深度思考" onChange={(value) => setCapabilities((current) => ({ ...current, reasoning: value }))} value={capabilities.reasoning} />
+              <div className="provider-cap-card">
+                <label className="provider-cap-label" htmlFor="model-vision"><Icon name="eye" size={13} />图片输入</label>
+                <NativeSelect className="settings-field" disabled={saving} aria-label="图片输入" id="model-vision" onChange={(event) => setVision(event.target.value as typeof vision)} value={vision}>
+                  <option value="auto">自动</option>
+                  <option value="enabled">启用</option>
+                  <option value="disabled">禁用</option>
+                </NativeSelect>
+              </div>
+              <CapabilityOption disabled={saving} icon="wrench" label="工具调用" onChange={(value) => setCapabilities((current) => ({ ...current, tools: value }))} value={capabilities.tools} />
+              <CapabilityOption disabled={saving} icon="brain-spark" label="深度思考" onChange={(value) => setCapabilities((current) => ({ ...current, reasoning: value }))} value={capabilities.reasoning} />
             </div>
           </section>
 
-          <details className="provider-dialog-advanced">
-            <summary tabIndex={0}>高级设置{hasAdvancedOverrides ? <span>已自定义</span> : null}</summary>
-            <div className="provider-dialog-advanced-body">
-              <p className="provider-dialog-hint">仅在服务商要求时修改，设置只影响当前模型。</p>
-              <ModelProfileEditorFields
-                apiFormat={apiFormat}
-                formatOptions={formatOptions}
-                formatOverride={formatOverride}
-                draft={draft}
-                model={target.model}
-                onApiFormat={setFormatOverride}
-                onDraft={setDraft}
-              />
-
-              <section className="provider-dialog-section">
-                <div className="provider-dialog-section-head"><h5>自定义请求头</h5><p>用于服务商要求的额外请求信息，按其文档填写 JSON。</p></div>
-                <textarea
-                  aria-label="自定义请求头（JSON）"
-                  className="provider-json-editor"
-                  onChange={(event) => { setHeadersText(event.target.value); setHeadersError(undefined); }}
-                  placeholder={'{\n  "X-Custom-Header": "value"\n}'}
-                  rows={5}
-                  spellCheck={false}
-                  value={headersText}
-                />
-              </section>
+          <ModelProfileEditorFields
+            disabled={saving}
+            apiFormat={apiFormat}
+            formatOptions={formatOptions}
+            formatOverride={formatOverride}
+            draft={draft}
+            model={target.model}
+            onApiFormat={setFormatOverride}
+            onDraft={setDraft}
+          />
+          <section className="provider-dialog-section">
+            <div className="provider-dialog-section-head">
+              <h4>自定义请求头{headersText.trim() ? <span>已自定义</span> : null}</h4>
+              <p>按服务商要求填写 JSON，仅用于当前模型。</p>
             </div>
-          </details>
+            <textarea
+              aria-label="自定义请求头（JSON）"
+              disabled={saving}
+              className="settings-field provider-json-editor"
+              onChange={(event) => { setHeadersText(event.target.value); setHeadersError(undefined); }}
+              placeholder={'{\n  "X-Custom-Header": "value"\n}'}
+              rows={5}
+              spellCheck={false}
+              value={headersText}
+            />
+          </section>
           {saveError ? <p className="provider-json-error" role="alert">{saveError}</p> : null}
           {headersError ? <p className="provider-json-error" role="alert">{headersError}</p> : null}
         </div>
@@ -2217,7 +2249,8 @@ function ModelOptionsDialog({
         <footer>
           {hasOverrides ? (
             <button
-              className="text-button provider-reset-button"
+              className="settings-action settings-text-action text-button provider-reset-button"
+              disabled={saving}
               onClick={(event) => {
                 resetToDefault();
                 // 重置后按钮会消失，把焦点交给保存，避免退回设置页背景。
@@ -2226,8 +2259,8 @@ function ModelOptionsDialog({
               type="button"
             >恢复推荐配置</button>
           ) : null}
-          <button className="ghost-button" disabled={saving} onClick={onClose} type="button">取消</button>
-          <button className="settings-primary-button" disabled={saving} type="submit">{saving ? "保存中…" : "保存"}</button>
+          <button className="settings-action settings-secondary-button ghost-button" disabled={saving} onClick={onClose} type="button">取消</button>
+          <button aria-busy={saving} className="settings-action settings-primary-button" disabled={saving} type="submit">保存</button>
         </footer>
       </form>
     </SettingsDetailLayer>
@@ -2235,7 +2268,8 @@ function ModelOptionsDialog({
 }
 
 /** 能力开关仅展示功能名，推荐值由对话框统一恢复。 */
-function CapabilityOption({ icon, label, onChange, value }: {
+function CapabilityOption({ disabled, icon, label, onChange, value }: {
+  disabled?: boolean;
   icon: "brain-spark" | "database" | "eye" | "wand" | "wrench";
   label: string;
   onChange(value: boolean): void;
@@ -2250,12 +2284,13 @@ function CapabilityOption({ icon, label, onChange, value }: {
       <button
         aria-checked={value}
         aria-label={label}
-        className={`model-toggle${value ? " is-on" : ""}`}
+        className={`settings-switch model-toggle${value ? " is-on" : ""}`}
+        disabled={disabled}
         onClick={() => onChange(!value)}
         role="switch"
         type="button"
       >
-        <span className="model-toggle-thumb" />
+
       </button>
     </div>
   );
@@ -2313,10 +2348,11 @@ const modelProfileThinkingLevels: Array<{ level: "off" | "minimal" | "low" | "me
 
 type ModelProfileThinkingLevel = (typeof modelProfileThinkingLevels)[number]["level"];
 
-function ModelProfileEditorFields({ apiFormat, formatOptions, formatOverride, draft, model, onApiFormat, onDraft }: {
+function ModelProfileEditorFields({ apiFormat, formatOptions, formatOverride, disabled, draft, model, onApiFormat, onDraft }: {
   apiFormat: ApiFormatId;
   formatOptions: ApiFormatOption[];
   formatOverride: ApiFormatId | "provider_default";
+  disabled?: boolean;
   draft: ModelProfileFieldDraft;
   model?: ModelChoice;
   onApiFormat(value: ApiFormatId | "provider_default"): void;
@@ -2333,12 +2369,13 @@ function ModelProfileEditorFields({ apiFormat, formatOptions, formatOverride, dr
       <section className="provider-dialog-section">
         <div className="provider-dialog-section-head">
           <h5>文本容量</h5>
-          <p>单位为 token（文本片段），留空自动设置。</p>
+          <p>单位：tokens。留空自动设置。</p>
         </div>
         <div className="provider-cap-fields">
           <label>
             <span>上下文容量</span>
-            <input
+            <input className="settings-field"
+              disabled={disabled}
               min={4096}
               onChange={(event) => updateField("contextWindow", event.target.value)}
               placeholder={!model?.contextWindowIsFallback && model?.contextWindow ? `自动：${model.contextWindow.toLocaleString("zh-CN")}` : "自动"}
@@ -2349,7 +2386,8 @@ function ModelProfileEditorFields({ apiFormat, formatOptions, formatOverride, dr
           </label>
           <label>
             <span>单次回复上限</span>
-            <input
+            <input className="settings-field"
+              disabled={disabled}
               min={1}
               onChange={(event) => updateField("maxOutputTokens", event.target.value)}
               placeholder={model?.maxOutputTokens ? `自动：${model.maxOutputTokens.toLocaleString("zh-CN")}` : "自动"}
@@ -2360,7 +2398,8 @@ function ModelProfileEditorFields({ apiFormat, formatOptions, formatOverride, dr
           </label>
           <label>
             <span>单次输入上限</span>
-            <input
+            <input className="settings-field"
+              disabled={disabled}
               min={2048}
               onChange={(event) => updateField("maxInputTokens", event.target.value)}
               placeholder="自动"
@@ -2376,7 +2415,7 @@ function ModelProfileEditorFields({ apiFormat, formatOptions, formatOverride, dr
           <h5>请求格式</h5>
           <p>连接当前使用 {apiFormatOption(apiFormat).label}，通常保持跟随即可。</p>
         </div>
-        <NativeSelect aria-label="当前模型的请求格式" onChange={(event) => onApiFormat(event.target.value as ApiFormatId | "provider_default")} value={formatOverride}>
+        <NativeSelect className="settings-field" disabled={disabled} aria-label="当前模型的请求格式" onChange={(event) => onApiFormat(event.target.value as ApiFormatId | "provider_default")} value={formatOverride}>
           <option value="provider_default">跟随连接设置</option>
           {formatOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
         </NativeSelect>
@@ -2384,13 +2423,14 @@ function ModelProfileEditorFields({ apiFormat, formatOptions, formatOverride, dr
       <section className="provider-dialog-section">
         <div className="provider-dialog-section-head">
           <h5>思考强度参数</h5>
-          <p>将应用中的思考强度对应到服务商的参数值。仅在自动适配有误时，按服务商文档填写；留空保持自动。</p>
+          <p>留空自动适配；需要覆盖时，按服务商文档填写各档参数值。</p>
         </div>
         <div className="model-profile-thinking-fields">
           {modelProfileThinkingLevels.map(({ level, label }) => (
             <label key={level}>
               <span>{label}</span>
-              <input
+              <input className="settings-field"
+                disabled={disabled}
                 onChange={(event) => updateThinkingLevel(level, event.target.value)}
                 placeholder={automaticThinkingPlaceholder(model, level)}
                 type="text"
@@ -2421,7 +2461,13 @@ function parseProfileInteger(value: string): number | undefined {
 
 // ── 共享的投影与展示辅助 ──
 
-/** 把目录模型投影成一次 upsert 输入；extra 覆盖地址、密钥、默认标记等连接级字段。 */
+/**
+ * 把目录模型投影成一次 upsert 输入；extra 覆盖地址、密钥、默认标记等连接级字段。
+ *
+ * 目录额度（contextWindow / maxInputTokens / maxOutputTokens / limits）不进设置事务：主进程写别名
+ * 时只保留已有覆盖和用户填的 modelProfile，回传服务商声明值会让一个大额度（如 943,718 输出）
+ * 撞入参上限并把整批「全选」拒掉。
+ */
 function catalogModelUpsertInput(
   providerAlias: string,
   providerType: DesktopModelConfigurationInput["providerType"],
@@ -2445,10 +2491,6 @@ function catalogModelUpsertInput(
     reasoningSummary: model.reasoningSummary,
     supportsVision: model.supportsVision,
     supportsAudio: model.supportsAudio,
-    contextWindow: model.contextWindow,
-    maxInputTokens: model.maxInputTokens,
-    maxOutputTokens: model.maxOutputTokens,
-    limits: model.limits,
     thinkingLevelMap: model.thinkingLevelMap,
     apiBackend: model.apiBackend,
     ...extra
@@ -2581,7 +2623,7 @@ function ProviderToggle({ group }: { group: ConnectionGroup }): React.JSX.Elemen
   };
   // 供应商状态独立保存，保存期间禁止重复切换。
   return <div className="provider-master-toggle">
-    <button type="button" role="switch" aria-checked={enabled} aria-label={enabled ? "停用整个服务商" : "启用整个服务商"} disabled={saving || !draft} className={`model-toggle${enabled ? " is-on" : ""}`} onClick={() => void toggle()}><span className="model-toggle-thumb" /></button>
+    <button type="button" role="switch" aria-checked={enabled} aria-label={enabled ? "停用整个服务商" : "启用整个服务商"} disabled={saving || !draft} className={`settings-switch model-toggle${enabled ? " is-on" : ""}`} onClick={() => void toggle()}></button>
     {error ? <small role="alert">{error}</small> : null}
   </div>;
 }

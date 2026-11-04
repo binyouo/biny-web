@@ -19,24 +19,14 @@ declare const workerAttemptSchema: z.ZodObject<{
     prompt: z.ZodString;
     beforeWorkspace: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     definitionFingerprint: z.ZodOptional<z.ZodString>;
-    accessMode: z.ZodOptional<z.ZodEnum<["read-only", "workspace"]>>;
+    accessMode: z.ZodOptional<z.ZodEnum<{
+        "read-only": "read-only";
+        workspace: "workspace";
+    }>>;
     agent: z.ZodOptional<z.ZodString>;
     communication: z.ZodOptional<z.ZodBoolean>;
-}, "strict", z.ZodTypeAny, {
-    prompt: string;
-    agent?: string | undefined;
-    accessMode?: "workspace" | "read-only" | undefined;
-    communication?: boolean | undefined;
-    definitionFingerprint?: string | undefined;
-    beforeWorkspace?: Record<string, string> | undefined;
-}, {
-    prompt: string;
-    agent?: string | undefined;
-    accessMode?: "workspace" | "read-only" | undefined;
-    communication?: boolean | undefined;
-    definitionFingerprint?: string | undefined;
-    beforeWorkspace?: Record<string, string> | undefined;
-}>;
+    workspaceRoot: z.ZodOptional<z.ZodString>;
+}, z.core.$strict>;
 export declare function readWorkerAttemptCheckpoint(artifacts: unknown): z.infer<typeof workerAttemptSchema> | undefined;
 export declare function runTaskClosure(input: {
     taskRuns: DurableTaskRunStore;

@@ -1,7 +1,7 @@
 .computer-use-settings .cu-muted { margin: 0; color: var(--text-secondary); font-size: calc(12px * var(--font-scale, 1)); line-height: 1.5; overflow-wrap: anywhere; }
 .computer-use-settings .cu-section { display: flex; flex-direction: column; gap: var(--st-card-gap); }
 .computer-use-settings h4 { margin: 0; color: var(--text-secondary); font-size: calc(.875 * var(--st-rem)); font-weight: 500; }
-.computer-use-settings .cu-helper, .computer-use-settings .cu-permission, .computer-use-settings .cu-diagnostics { border: 1px solid var(--border-subtle); border-radius: var(--st-radius); background: var(--surface); padding: var(--st-control-py) var(--st-control-px); }
+.computer-use-settings .cu-helper, .computer-use-settings .cu-permission { border: 1px solid var(--border-subtle); border-radius: var(--st-radius); background: var(--surface); padding: var(--st-control-py) var(--st-control-px); }
 .computer-use-settings .cu-helper { display: flex; align-items: center; gap: var(--st-control-gap); min-width: 0; }
 .computer-use-settings .cu-helper > svg { color: var(--text-tertiary); flex-shrink: 0; }
 .computer-use-settings .cu-helper[data-loaded="true"] > svg, .computer-use-settings .cu-permission-state.is-granted { color: var(--green-text); }
@@ -10,27 +10,42 @@
 .computer-use-settings .cu-helper > span { flex-shrink: 0; color: var(--text-secondary); font-size: calc(.8 * var(--st-rem)); }
 .computer-use-settings .cu-permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--st-card-gap); }
 .computer-use-settings .cu-permission { display: flex; align-items: center; justify-content: space-between; gap: var(--st-control-gap); flex-wrap: wrap; }
-.computer-use-settings .cu-permission > div { min-width: 0; flex: 1 1 180px; }
+.computer-use-settings .cu-approval-info { min-width: 0; flex: 1 1 180px; }
+.computer-use-settings .cu-permission.cu-approval-row { border: 0; border-radius: 0; background: transparent; padding: var(--st-control-py) 0; }
+.computer-use-settings .cu-approval-row + .cu-approval-row { border-top: 1px solid var(--border-subtle); }
+.computer-use-settings .cu-approval-actions { display: flex; align-items: center; gap: var(--st-control-gap); flex-wrap: wrap; }
 .computer-use-settings .cu-permission > button { flex: none; }
 .computer-use-settings .cu-permission-state { display: inline-flex; color: var(--text-tertiary); }
 .computer-use-settings .cu-button-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--st-control-gap); }
-.computer-use-settings .cu-diagnostics { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: calc(.8 * var(--st-rem)); margin: 0; max-height: 240px; overflow: auto; }
 .computer-use-settings details { padding-top: var(--st-card-gap); }
 .computer-use-settings summary { cursor: pointer; color: var(--text-secondary); }
-.computer-use-settings .cu-foreground { display: flex; align-items: center; gap: var(--st-control-gap); margin: var(--st-card-gap) 0; }
 .computer-use-settings .cu-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @container settings (max-width: 560px) { .computer-use-settings .cu-permission-grid { grid-template-columns: 1fr; } }
 
 .computer-use-settings .cu-description { margin: 0; color: var(--text-secondary); line-height: 1.6; }
+.computer-use-settings .cu-title { display: flex; align-items: center; gap: 8px; }
+.computer-use-settings .cu-focus-warning { display: flex; align-items: flex-start; gap: 8px; padding: var(--st-control-py) var(--st-control-px); border: 1px solid var(--red-text); border-radius: var(--st-radius); color: var(--red-text); }
+.computer-use-settings .cu-focus-warning > svg { flex: none; margin-top: 2px; }
+.computer-use-settings .cu-focus-warning h4, .computer-use-settings .cu-focus-warning .cu-description { color: inherit; }
 .computer-use-settings .cu-helper, .computer-use-settings .cu-permission { min-height: calc(36px * var(--font-scale, 1)); }
 .computer-use-settings .cu-feedback { margin: 0; font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
 .computer-use-settings .cu-feedback[role="alert"] { color: var(--red-text); }
-.computer-use-settings .cu-controls, .computer-use-settings .cu-technical-details { border-top: 1px solid var(--border-subtle); }
 .computer-use-settings details > summary { font-size: calc(12px * var(--font-scale, 1)); }
 .computer-use-settings details[open] > summary { margin-bottom: 12px; }
 .computer-use-settings details .cu-description { margin-bottom: 12px; }
 
-.computer-use-settings .cu-toggles { display: grid; gap: 0; }
+/* 总开关作为卡片首行，与下方组件/权限/审批之间留一道分隔线。 */
+.computer-use-settings .cu-master { padding-bottom: var(--st-card-gap); border-bottom: 1px solid var(--border-subtle); }
+.computer-use-settings .cu-master .settings-switch-row { padding: 0; }
+.computer-use-settings .cu-master .settings-switch-copy strong { font-size: calc(1 * var(--st-rem)); font-weight: 500; }
+
+/* 三个运行时开关是瓷贴网格，不走 row-group 的分隔线容器。 */
+.computer-use-settings .cu-toggles { display: grid; gap: var(--st-card-gap); }
+.computer-use-settings .cu-toggle { display: flex; align-items: flex-start; gap: 8px; padding: var(--st-control-py) var(--st-control-px); border: 1px solid var(--border-subtle); border-radius: var(--st-radius); background: var(--surface); }
+.computer-use-settings .cu-toggle > svg { flex: none; margin-top: 3px; color: var(--text-secondary); }
+.desktop-settings-dialog .settings-modal .computer-use-settings .cu-toggle .settings-switch-row { min-height: 0; padding: 0; }
+.computer-use-settings .cu-approvals-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.desktop-settings-dialog .settings-modal .computer-use-settings .cu-approvals-heading h3 { margin: 0; font-size: calc(1.125 * var(--st-rem)); font-weight: 500; }
 
 .computer-use-settings .cu-confirm {
   margin-top: 12px; padding: 14px;
@@ -52,25 +67,12 @@
 .computer-use-settings .cu-checkup li { font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
 .computer-use-settings .cu-checkup li[data-ok="false"] { color: var(--red-text); }
 
-/* ── Appshots ──────────────────────────────────────────────────────────────
-   截图设置采用介绍卡和行卡片：一个带徽章的介绍卡、
-   一张 divide 的行列表、一条脚注。所有行共用同一套 4px/16px 间距节奏。 */
+/* Appshots：介绍、偏好行和操作反馈。 */
 .appshot-settings .appshot-hero {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
   gap: calc(12px * var(--font-scale, 1));
-}
-.appshot-settings .appshot-hero-badge {
-  display: inline-flex;
-  width: calc(48px * var(--font-scale, 1));
-  height: calc(48px * var(--font-scale, 1));
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: calc(12px * var(--font-scale, 1));
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .appshot-settings .appshot-hero-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .appshot-settings .appshot-hero-copy h3 { margin: 0; }
@@ -80,9 +82,10 @@
 .desktop-settings-dialog .settings-modal .appshot-settings .appshot-rows { padding: 0; gap: 0; }
 .appshot-settings .appshot-row {
   display: flex;
+  min-height: calc(56px * var(--font-scale, 1));
   align-items: center;
   justify-content: space-between;
-  gap: calc(16px * var(--font-scale, 1));
+  gap: calc(24px * var(--font-scale, 1));
   padding: var(--st-row-padding);
 }
 .appshot-settings .appshot-row + .appshot-row { border-top: 1px solid var(--border-subtle); }
@@ -117,32 +120,59 @@
 }
 .appshot-settings .appshot-link:disabled { opacity: .55; }
 
-/* 下拉框：宽度按内容走、不随行拉伸，触发器里留出一枚加载指示的位置。 */
-.appshot-settings .appshot-field { flex: none; }
+/* 下拉框与右侧分段控件、按钮共用同一控件节奏，右缘对齐成一条线。
+   外框只做定位壳，可见样式都落在 select 自己身上，避免原生下拉再叠出一块内缩小框。 */
+.appshot-settings .appshot-field { display: inline-flex; flex: none; position: relative; }
 .appshot-settings .appshot-select {
+  position: relative;
   display: inline-flex;
-  min-width: calc(120px * var(--font-scale, 1));
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: var(--st-radius);
-  background: var(--surface-soft);
+  min-width: calc(132px * var(--font-scale, 1));
+  min-height: var(--st-control-h);
+  align-items: stretch;
+  padding: 0;
 }
 .appshot-settings .appshot-select select {
   width: 100%;
-  min-height: calc(32px * var(--font-scale, 1));
-  padding: 0;
-  border: 0;
+  height: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--st-button-radius);
   color: var(--text);
-  background: transparent;
+  background: var(--surface-soft);
   font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color .12s ease, background .12s ease;
 }
-.appshot-settings .appshot-select:hover { background: var(--surface-hover); }
-.appshot-settings .appshot-select:focus-within { border-color: var(--accent); }
-.appshot-settings .appshot-select select:focus-visible { outline: none; }
-.appshot-settings .appshot-spin { flex: none; color: var(--text-tertiary); animation: appshot-spin 1s linear infinite; }
-@keyframes appshot-spin { to { transform: rotate(1turn); } }
+.appshot-settings .appshot-select select:hover { background: var(--surface-hover); }
+.appshot-settings .appshot-select select:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--field-focus-ring); }
+/* 自绘下拉箭头，叠在右侧、不吃 flex 宽度，避免原生箭头随平台字体重排。 */
+.appshot-settings .appshot-select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  border-top: 5px solid var(--text-tertiary);
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  pointer-events: none;
+}
+.appshot-settings .appshot-spin {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  color: var(--text-tertiary);
+  transform: translateY(-50%);
+  animation: appshot-spin 1s linear infinite;
+}
+.appshot-settings .appshot-select:has(.appshot-spin)::after { display: none; }
+@keyframes appshot-spin { from { transform: translateY(-50%) rotate(0); } to { transform: translateY(-50%) rotate(1turn); } }
 @media (prefers-reduced-motion: reduce) { .appshot-settings .appshot-spin { animation: none; } }
 
 /* 监听未开启时显示警示卡，使用琥珀色边框和淡色背景。 */

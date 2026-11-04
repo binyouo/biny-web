@@ -1,6 +1,8 @@
+import { type RtkReceipt } from "./rtk.js";
 import type { SandboxConfig } from "../../config/schema.js";
 import type { ManagedProcessReadinessProbe, ManagedProcessService, ManagedProcessSnapshot } from "../../runtime/ManagedProcessService.js";
-import type { Tool, ToolContext, ToolUpdate } from "../types.js";
+import type { Tool, ToolContext, ToolUpdate, ToolExecutionContext } from "../types.js";
+import { type ShellPlan } from "./shell.js";
 export interface RunCommandArgs {
     command: string;
     description?: string;
@@ -19,6 +21,9 @@ export type RunCommandToolResult = (RunCommandResult & {
 };
 export interface RunCommandResult {
     status: "completed" | "failed" | "timed_out";
+    rtk?: RtkReceipt;
+    executedCommand?: string;
+    optimizationWarning?: string;
     /** 这次执行实际生效的沙箱边界；未生效时说明原因。 */
     sandbox?: string;
     stdout: string;
@@ -41,6 +46,7 @@ export interface RunCommandResult {
     error?: string;
 }
 export interface RunShellCommandOptions {
+    shell?: ShellPlan;
     signal?: AbortSignal;
     /** Internal observation only; this evidence never changes the public result. */
     onCompletionEvidence?: (evidence: ShellCompletionEvidence) => void;
@@ -58,9 +64,16 @@ export interface RunShellCommandOptions {
 /** A normal shell exit is evidence of completion, not proof that it had no effects. */
 export type ShellCompletionEvidence = "normal_exit" | "unconfirmed";
 export interface RunCommandToolOptions {
+    rtkEnabled?: () => boolean | Promise<boolean>;
+    shell?: ShellPlan;
     /** 内部调用方可收紧单次命令超时；普通模型工具继续使用 runShellCommand 的默认值。 */
     timeoutMs?: number;
     controlledComputerUse?: boolean;
+    executionScope?: (context: ToolExecutionContext, args: RunCommandArgs) => {
+        env: Record<string, string>;
+        resultMetadata(): Record<string, unknown>;
+        dispose(): void;
+    } | undefined;
 }
 export declare function createRunCommandTool(context: ToolContext, sandbox?: SandboxConfig, options?: RunCommandToolOptions, managedProcesses?: ManagedProcessService): Tool<RunCommandArgs, RunCommandToolResult>;
 export declare function runShellCommand(cwd: string, command: string, options?: RunShellCommandOptions): Promise<RunCommandResult>;

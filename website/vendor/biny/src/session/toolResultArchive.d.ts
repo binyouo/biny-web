@@ -40,6 +40,7 @@ export declare function toolResultPreview(value: string, maxCharacters?: number)
  * constrained, so a tool argument can never address anything outside the
  * archive directory.
  */
+export declare function isToolResultArchiveReference(value: unknown): boolean;
 export declare function resolveToolResultArchivePath(workspaceRoot: string, archivePath: string): string;
 export declare function readToolResultArchive(workspaceRoot: string, archivePath: string, signal?: AbortSignal): Promise<ToolResultArchiveEnvelope>;
 /** Keeps the archive directory bounded; the oldest references expire first. */

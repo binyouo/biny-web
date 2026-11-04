@@ -1,10 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MarkdownContent } from "../../vendor/biny/src/desktop/renderer/src/components/MarkdownContent";
-import { AppearanceContext } from "../../vendor/biny/src/desktop/renderer/src/appearanceContext";
-import { appearanceVariables } from "../../vendor/biny/src/desktop/renderer/src/appearance";
-import { DEFAULT_APPEARANCE } from "../../vendor/biny/src/appearance/preferences";
-import { resolveAppearance } from "../../vendor/biny/src/appearance/resolve";
+import { ThemeModeContext } from "../../vendor/biny/src/desktop/renderer/src/appearanceContext";
+import { applyAppearance } from "../../vendor/biny/src/desktop/renderer/src/appearance";
 import { hasTrustedSender } from "./bridge";
 import { isRenderDemoState, isRenderMode, renderSamples, type RenderDemoState } from "./renderSamples";
 import "../../vendor/biny/src/desktop/renderer/src/styles/layers.css";
@@ -18,16 +16,11 @@ const previewFile = () => {};
 
 function RenderChat() {
   const [state, setState] = useState<RenderDemoState>({ source: "biny-render-host", mode: isRenderMode(modeParam) ? modeParam : "mermaid", theme: "light", active: true });
-  const appearance = useMemo(() => resolveAppearance(DEFAULT_APPEARANCE, state.theme, false), [state.theme]);
   const sample = renderSamples[state.mode];
 
   useLayoutEffect(() => {
-    const root = document.documentElement;
-    root.dataset.theme = state.theme;
-    root.classList.toggle("dark", state.theme === "dark");
-    root.classList.toggle("light", state.theme === "light");
-    for (const [name, value] of Object.entries(appearanceVariables(appearance))) root.style.setProperty(name, value);
-  }, [appearance, state.theme]);
+    applyAppearance(document.documentElement, { themePreference: state.theme, fontPreference: { family: "system", size: 15 } });
+  }, [state.theme]);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -45,7 +38,7 @@ function RenderChat() {
     };
   }, []);
 
-  return <AppearanceContext.Provider value={appearance}>
+  return <ThemeModeContext.Provider value={state.theme}>
     <main className="render-chat biny-chat-scroll" aria-label="Biny 聊天渲染示例" data-mode={state.mode}>
       <div className="chat-message user-message"><div className="user-bubble"><MarkdownContent content={sample.question} projectId="website-render-demo" onPreviewFile={previewFile} onOpenExternal={openExternal} /></div></div>
       <div className="chat-message desktop-assistant-message">
@@ -55,7 +48,7 @@ function RenderChat() {
           : <p className="render-chat-idle">音乐已停止。回到这里后可再次播放。</p>}
       </div>
     </main>
-  </AppearanceContext.Provider>;
+  </ThemeModeContext.Provider>;
 }
 
 const root = createRoot(document.getElementById("root")!);

@@ -16,53 +16,18 @@ export interface PlanReviewCandidate {
     contract: TaskVerificationContract;
     evidence: TaskVerificationEvidence;
 }
-export declare const planReviewResultSchema: z.ZodEffects<z.ZodObject<{
-    verdict: z.ZodEnum<["passed", "needs_changes"]>;
+export declare const planReviewResultSchema: z.ZodObject<{
+    verdict: z.ZodEnum<{
+        passed: "passed";
+        needs_changes: "needs_changes";
+    }>;
     summary: z.ZodString;
-    evidenceReferences: z.ZodArray<z.ZodString, "many">;
+    evidenceReferences: z.ZodArray<z.ZodString>;
     findings: z.ZodArray<z.ZodObject<{
         criterion: z.ZodString;
         requestedChange: z.ZodString;
-    }, "strict", z.ZodTypeAny, {
-        criterion: string;
-        requestedChange: string;
-    }, {
-        criterion: string;
-        requestedChange: string;
-    }>, "many">;
-}, "strict", z.ZodTypeAny, {
-    summary: string;
-    verdict: "passed" | "needs_changes";
-    evidenceReferences: string[];
-    findings: {
-        criterion: string;
-        requestedChange: string;
-    }[];
-}, {
-    summary: string;
-    verdict: "passed" | "needs_changes";
-    evidenceReferences: string[];
-    findings: {
-        criterion: string;
-        requestedChange: string;
-    }[];
-}>, {
-    summary: string;
-    verdict: "passed" | "needs_changes";
-    evidenceReferences: string[];
-    findings: {
-        criterion: string;
-        requestedChange: string;
-    }[];
-}, {
-    summary: string;
-    verdict: "passed" | "needs_changes";
-    evidenceReferences: string[];
-    findings: {
-        criterion: string;
-        requestedChange: string;
-    }[];
-}>;
+    }, z.core.$strict>>;
+}, z.core.$strict>;
 export type PlanReviewResult = z.infer<typeof planReviewResultSchema>;
 export declare function planBlock(intent: unknown): PlanBlock | undefined;
 export declare function latestPlanNode(graph: GraphRecord, key: string): GraphNodeRecord;

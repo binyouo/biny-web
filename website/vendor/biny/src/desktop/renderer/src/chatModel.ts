@@ -1,3 +1,4 @@
+import { toolDisplayName } from "../../../tools/presentation.js";
 /**
  * 聊天行的纯函数模型。
  *
@@ -5,21 +6,11 @@
  */
 import type { TimelineReasoningStep, TimelineTool, TimelineToolStep, TimelineTurn } from "./sessionTimeline.js";
 import { readReportedCacheUsage, reportedCacheTokenValue, type SessionUsage } from "../../../session/metadata.js";
-import { countDiffStats } from "./sessionChanges.js";
+import { countToolDiffStats } from "./sessionChanges.js";
 
 /** 实时与历史消息共用同一身份判断，已接收的消息不再保留发送占位或驱动忙碌状态。 */
 export function hasSubmittedUserMessage(turns: TimelineTurn[], messageId: string | undefined): boolean {
   return messageId !== undefined && turns.some((turn) => turn.userMessageId === messageId);
-}
-
-/**
- * 运行中可以展示正在使用的上下文；结束后只保留成功轮次里有实际产出的清单。
- * 这样失败或空回复不会因为预选能力、预先检索记忆而留下误导性的标识。
- */
-export function shouldShowResponseContext(turn: Pick<TimelineTurn, "assistant" | "skills" | "status" | "tools">): boolean {
-  if (turn.status === "running" || turn.status === "waiting_permission") return true;
-  if (turn.status !== "completed") return false;
-  return Boolean(turn.assistant.trim() || turn.tools.length || turn.skills.length);
 }
 
 /** 错误行的折叠摘要 = 失败文本首行（DSH：错误摘要替换摘要槽）。 */
@@ -203,11 +194,11 @@ export interface ActivityPhase {
 /** 只读类工具：归入「探索」相位。 */
 const EXPLORING_TOOLS = new Set([
   "Read", "Glob", "Grep", "WebSearch", "WebFetch",
-  "read_tool_result", "read_skill_resource",
+  "read_skill_resource",
   "mcp_list_resources", "mcp_read_resource",
   "activity_search", "activity_search_semantic", "activity_sessions", "activity_session_show",
   "activity_report", "activity_digest",
-  "recall_memory", "skill_search", "BrowserReadDom",
+  "recall_memory", "skill_search", "BrowserReadDom", "BrowserListEnvironments",
   "ChromeRelayStatus", "ChromeRelayListTabs", "ChromeRelayRead",
 ]);
 
@@ -215,7 +206,7 @@ const EXPLORING_TOOLS = new Set([
 const MAKING_TOOLS = new Set(["Write", "Edit", "TodoWrite", "save_memory", "skill_install"]);
 
 /** 命令类工具：归入「运行」相位。 */
-const RUNNING_TOOLS = new Set(["Bash", "BashOutput", "KillShell"]);
+const RUNNING_TOOLS = new Set(["Bash", "ProcessStatus", "KillShell"]);
 
 /** 步骤的相位语义：思考步骤 → thinking；工具按工具名分箱；其余 → generic。 */
 export function activityPhaseKindOf(step: TimelineToolStep | TimelineReasoningStep): ActivityPhaseKind {
@@ -291,7 +282,7 @@ export function phaseLabel(phase: ActivityPhase, live: boolean, thinkingSeconds?
     default: {
       const names = new Set(phase.items.flatMap(({ step }) => step.kind === "tool" ? [step.tool.tool] : []));
       if (names.size === 1) {
-        const name = [...names][0]?.replace(/[_-]+/g, " ") ?? "tool";
+        const name = toolDisplayName([...names][0] ?? "tool");
         return { verb: live ? "使用中" : "已使用", rest: n === 1 ? name : `${name} ×${String(n)}` };
       }
       return { verb: live ? "进行中" : "已完成", rest: `${String(n)} 步` };
@@ -338,8 +329,10 @@ export function activityToolRow(tool: TimelineTool): ActivityToolRowModel {
   const error = tool.status === "failed" || tool.status === "denied" || tool.status === "unknown";
   const row: ActivityToolRowModel = { verb: "", object: "", running, error };
   switch (tool.tool) {
+    case "run_script":
+      row.verb = stringArg(tool, "description")?.trim() || "脚本处理";
+      return row;
     case "Read":
-    case "read_tool_result":
     case "read_skill_resource":
     case "mcp_read_resource":
       row.verb = "读取";
@@ -368,7 +361,7 @@ export function activityToolRow(tool: TimelineTool): ActivityToolRowModel {
       row.object = display?.operation === "move"
         ? `${filePath || "…"} → ${display.destinationPath ?? stringArg(tool, "to") ?? "…"}`
         : filePath || "…";
-      const stats = tool.diff ? countDiffStats(tool.diff) : undefined;
+      const stats = tool.diff ? countToolDiffStats(tool) : undefined;
       row.minus = stats?.del;
       row.plus = stats?.add;
       return row;
@@ -392,9 +385,9 @@ export function activityToolRow(tool: TimelineTool): ActivityToolRowModel {
       row.verb = "终止";
       row.object = stringArg(tool, "processId") ?? stringArg(tool, "id") ?? "进程";
       return row;
-    case "BashOutput":
+    case "ProcessStatus":
       row.verb = "查看";
-      row.object = stringArg(tool, "processId") ?? stringArg(tool, "id") ?? "进程输出";
+      row.object = stringArg(tool, "processId") ?? "后台进程状态";
       return row;
     case "Skill":
     case "skill_call":
@@ -423,15 +416,19 @@ export function activityToolRow(tool: TimelineTool): ActivityToolRowModel {
       return row;
     case "BrowserOpen":
       row.verb = "打开";
-      row.object = stringArg(tool, "url") ?? tool.description ?? "…";
+      row.object = [stringArg(tool, "url"), stringArg(tool, "environment")].filter(Boolean).join(" · ") || tool.description || "…";
+      return row;
+    case "BrowserListEnvironments":
+      row.verb = "列出浏览器环境";
+      row.object = tool.description ?? "";
       return row;
     case "BrowserClick":
       row.verb = "点击";
-      row.object = stringArg(tool, "element") ?? stringArg(tool, "target") ?? tool.description ?? "…";
+      row.object = stringArg(tool, "selector") ?? stringArg(tool, "element") ?? stringArg(tool, "target") ?? tool.description ?? "…";
       return row;
     case "BrowserType":
       row.verb = "输入";
-      row.object = stringArg(tool, "text") ?? tool.description ?? "…";
+      row.object = stringArg(tool, "selector") ?? tool.description ?? "…";
       return row;
     case "BrowserPress":
       row.verb = "按键";
@@ -441,12 +438,40 @@ export function activityToolRow(tool: TimelineTool): ActivityToolRowModel {
       row.verb = "读取页面";
       row.object = tool.description ?? "";
       return row;
+    case "BrowserSelectOption":
+      row.verb = "选择选项";
+      row.object = stringArg(tool, "selector") ?? "…";
+      return row;
+    case "BrowserSetChecked":
+      row.verb = args?.checked === true ? "勾选" : "取消勾选";
+      row.object = stringArg(tool, "selector") ?? "…";
+      return row;
+    case "BrowserScroll":
+      row.verb = "滚动页面";
+      row.object = typeof args?.deltaY === "number" ? `垂直 ${String(args.deltaY)} px` : tool.description ?? "…";
+      return row;
+    case "BrowserDialogRespond":
+      row.verb = stringArg(tool, "action") === "accept" ? "接受对话框" : "取消对话框";
+      row.object = tool.description ?? "网页确认框";
+      return row;
+    case "BrowserDialogAutoReply":
+      row.verb = stringArg(tool, "action") === "stop" ? "停止自动响应" : "设置自动响应";
+      row.object = stringArg(tool, "behavior") === "accept" ? "接受网页对话框" : "取消网页对话框";
+      return row;
+    case "BrowserEval":
+      row.verb = "执行网页表达式";
+      row.object = tool.description ?? "…";
+      return row;
+    case "BrowserCDP":
+      row.verb = "浏览器协议操作";
+      row.object = stringArg(tool, "method") ?? tool.description ?? "…";
+      return row;
     case "Task":
       row.verb = "委派子代理";
       row.object = stringArg(tool, "task") ?? "…";
       return row;
     default: {
-      row.verb = tool.tool.replace(/[_-]+/g, " ");
+      row.verb = toolDisplayName(tool.tool);
       row.object = tool.description ?? "";
       if (!row.object && args) {
         const first = Object.values(args).find((value) => typeof value === "string" && value.length > 0 && value.length < 200);

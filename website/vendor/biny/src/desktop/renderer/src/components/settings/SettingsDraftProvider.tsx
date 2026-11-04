@@ -5,8 +5,6 @@
  * 预览，Activity 则通过独立 CAS 通道即时落盘，其余设置仍由 saveAll 进入主进程事务。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { normalizeAppearancePreference } from "../../../../../appearance/preferences.js";
-import type { AppearancePreference } from "../../../../../appearance/types.js";
 import type { ModelProfile } from "../../../../../config/schema.js";
 import type {
   DesktopActivitySettingsInput,
@@ -29,16 +27,61 @@ import type {
   DesktopStagedSettingsCredential,
   DesktopThemePreference,
   DesktopWebSearchSettings,
-  DesktopWebSearchSettingsInput
+  DesktopWebSearchSettingsInput,
+  DesktopRedactionSettings,
+  DesktopRedactionSettingsInput
 } from "../../../../protocol.js";
 import { canReuseSettingsSnapshot, SettingsDraftContext, type DesktopSettingsDraft, type SettingsDraftContextValue, type SettingsSaveState } from "./SettingsDraftContext.js";
 
+// 请求与 adoption 分开缓存：打开设置要在 shell 生命周期结束前预热同一 IPC，
+// 但之前的快照/draft 绝不能跨项目 scope 沿用，否则旧界面会闪别的项目的内容。
+// in-flight 与快照各自独立缓存 —— pending 时订阅同一 promise，resolve 后写 persisted
+// 并从 in-flight 移除；bridge 换主时一并失效。
+const persistedSnapshots = { owner: undefined as object | undefined, map: new Map<string, DesktopSettingsSnapshot>() };
+const inFlightRequests = { owner: undefined as object | undefined, map: new Map<string, Promise<DesktopSettingsSnapshot>>() };
+
+function bucket<T>(store: { owner: object | undefined; map: Map<string, T> }, owner: object): Map<string, T> {
+  if (store.owner !== owner) {
+    store.map.clear();
+    store.owner = owner;
+  }
+  return store.map;
+}
+
+function readPersistedSnapshot(owner: object, key: string): DesktopSettingsSnapshot | undefined {
+  return persistedSnapshots.owner === owner ? persistedSnapshots.map.get(key) : undefined;
+}
+
+function writePersistedSnapshot(owner: object, key: string, next: DesktopSettingsSnapshot): void {
+  bucket(persistedSnapshots, owner).set(key, next);
+}
+
+/** 应用层在用户点设置前调用：同一 project+session 只预热一次。resolve 后写 persisted 缓存并释放 in-flight。 */
+export function warmSettingsSnapshot(projectId: string | undefined, sessionId: string | undefined): void {
+  // 无项目时 provider 走的是 activitySettings（纯内存读，不需要预热）。
+  if (projectId === undefined) return;
+  const key = `${projectId}::${sessionId ?? ""}`;
+  const requests = bucket(inFlightRequests, window.biny);
+  if (requests.has(key)) return;
+  const request = window.biny.settingsSnapshot(projectId, sessionId);
+  requests.set(key, request);
+  const drop = (): void => {
+    if (requests.get(key) === request) requests.delete(key);
+  };
+  // resolve 时顺手把快照写进模块缓存：预热完成但用户没打开设置时，下次 mount
+  // 用 persisted 直接渲染；reject 时立即释放，下次打开走正常加载。
+  void request.then(next => {
+    writePersistedSnapshot(window.biny, key, next);
+    drop();
+  }, () => drop());
+}
+
 export function SettingsDraftProvider({
   active,
+  loadSnapshot = true,
   children,
   onCommitted,
   onFontPreview,
-  onAppearancePreview,
   onNotify,
   onThemePreview,
   projectId,
@@ -46,43 +89,67 @@ export function SettingsDraftProvider({
   sessionRunning
 }: {
   active: boolean;
+  loadSnapshot?: boolean;
   children: React.ReactNode;
-  onCommitted(snapshot: DesktopSettingsSnapshot): void;
+  onCommitted(snapshot: DesktopSettingsSnapshot, scope?: "models" | "model-config" | "preferences" | "settings", appliedFields?: string[]): void;
   onFontPreview(value: DesktopFontPreference): void;
-  onAppearancePreview?(value: AppearancePreference): void;
   onNotify(message: string): void;
   onThemePreview(value: DesktopThemePreference): void;
   projectId?: string;
   sessionId?: string;
   sessionRunning: boolean;
 }): React.JSX.Element {
-  const [snapshot, setSnapshot] = useState<DesktopSettingsSnapshot>();
   // 关掉设置窗口不销毁缓存：下次打开先用它渲染，后台再校验一次，
   // 避免每次都从零走一趟 IPC（这正是"进设置先看到正在加载"的来源）。
   const cacheKey = `${projectId ?? ""}::${sessionId ?? ""}`;
+  const initialCached = readPersistedSnapshot(window.biny, cacheKey);
+  const [snapshot, setSnapshot] = useState<DesktopSettingsSnapshot | undefined>(initialCached);
   const cacheKeyRef = useRef(cacheKey);
-  const reusableCacheRef = useRef<{ key: string } | undefined>(undefined);
+  const reusableCacheRef = useRef<{ key: string } | undefined>(
+    initialCached === undefined ? undefined : { key: cacheKey }
+  );
   const lastLoadAttemptRef = useRef(0);
   useEffect(() => () => { void window.biny.previewAppearance(null).catch((error: unknown) => onNotify(`恢复外观失败：${error instanceof Error ? error.message : String(error)}`)); }, [onNotify]);
-  const [draft, setDraft] = useState<DesktopSettingsDraft>();
+  const [draft, setDraft] = useState<DesktopSettingsDraft | undefined>(() =>
+    initialCached === undefined ? undefined : draftFromSnapshot(initialCached)
+  );
   const [globalActivity, setGlobalActivity] = useState<DesktopActivitySettingsUpdate>();
   const globalActivityRef = useRef<DesktopActivitySettingsUpdate | undefined>(undefined);
   const [loadError, setLoadError] = useState<string>();
-  const [loading, setLoading] = useState(active);
+  const [loading, setLoading] = useState(active && loadSnapshot && initialCached === undefined);
   const [revalidating, setRevalidating] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saveError, setSaveError] = useState<string>();
+  const [manualSaving, setManualSaving] = useState(false);
+  const manualSaveRequestRef = useRef(0);
+  const [modelSelectionSaving, setModelSelectionSaving] = useState(false);
   const [pendingModelEdits, reportModelEditState] = useState(false);
   const [saveState, setSaveState] = useState<SettingsSaveState>("clean");
   const credentialHandlesRef = useRef(new Set<string>());
-  const snapshotRef = useRef<DesktopSettingsSnapshot | undefined>(undefined);
+  const snapshotRef = useRef<DesktopSettingsSnapshot | undefined>(initialCached);
   useLayoutEffect(() => { cacheKeyRef.current = cacheKey; }, [cacheKey]);
   const loadGenerationRef = useRef(0);
+  const loadedGenerationRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    loadGenerationRef.current += 1;
+    return () => { loadGenerationRef.current += 1; };
+  }, [active, cacheKey]);
+  const [importRevision, setImportRevision] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    return window.biny.onApplicationImportsChanged?.(change => {
+      if (!change.settingsChanged) return;
+      loadedGenerationRef.current = undefined;
+      bucket(inFlightRequests, window.biny).delete(cacheKey);
+      setImportRevision(revision => revision + 1);
+    });
+  }, [active, cacheKey]);
   const activityUpdateTailRef = useRef(Promise.resolve());
 
   const adoptSnapshot = useCallback((next: DesktopSettingsSnapshot, submittedDraft?: DesktopSettingsDraft, refreshing = false): void => {
     snapshotRef.current = next;
     setSnapshot(next);
+    writePersistedSnapshot(window.biny, cacheKeyRef.current, next);
     // 记下这份快照属于哪个项目；下次打开同一项目时可以先拿它渲染。
     // 这里必须用 cacheKeyRef 而不是闭包里的 projectId/sessionId —— adoptSnapshot 的
     // 依赖数组不含它们，闭包里读到的是旧值，会给快照挂错 key。
@@ -97,18 +164,17 @@ export function SettingsDraftProvider({
     setSaveState(next.pendingRecovery ? "recovery_required" : "clean");
   }, []);
 
-  const { themePreference: draftTheme, fontPreference: draftFont, appearancePreference: draftAppearance } = draft ?? {};
+  const { themePreference: draftTheme, fontPreference: draftFont } = draft ?? {};
   useEffect(() => {
-    if (!active || !draftTheme || !draftFont || !draftAppearance) return;
+    if (!active || !draftTheme || !draftFont) return;
     onThemePreview(draftTheme);
     onFontPreview(draftFont);
-    onAppearancePreview?.(draftAppearance);
-  }, [active, draftTheme, draftFont, draftAppearance, onAppearancePreview, onFontPreview, onThemePreview]);
+  }, [active, draftTheme, draftFont, onFontPreview, onThemePreview]);
 
   useEffect(() => {
-    if (!active) return;
-    loadGenerationRef.current += 1;
+    if (!active || !loadSnapshot) return;
     const generation = loadGenerationRef.current;
+    if (loadedGenerationRef.current === generation && lastLoadAttemptRef.current === loadAttempt) return;
     let cancelled = false;
     // 之前读过同一个项目：先沿用缓存渲染（壳先出），后台再静默校验一次。
     // 首次读取、或项目变了、或用户主动 retry 时才清空并显示加载态。
@@ -123,9 +189,9 @@ export function SettingsDraftProvider({
       setRevalidating(true);
       setLoadError(undefined);
     } else {
-      setSnapshot(undefined);
-      snapshotRef.current = undefined;
-      setDraft(undefined);
+      // 无缓存可走 stale-while-revalidate：初始 state 已是空，只需点亮加载态。
+      // 模块级缓存保证 scope 唯一，跨项目/会话 remount 时新实例从 initialCached 起步，
+      // 不可能出现"同实例换 cacheKey"的场景（key={scope} 会让 React 重建整个 Provider）。
       setGlobalActivity(undefined);
       globalActivityRef.current = undefined;
       setLoadError(undefined);
@@ -136,8 +202,13 @@ export function SettingsDraftProvider({
     }
     // 没有项目时只读取全局 Activity 快照，不伪造项目 ID，也不加载项目模型或会话。
     const refreshBase = snapshotRef.current;
+    // 预热请求（warmSettingsSnapshot）与正常读取共用同一个 promise：打开设置时
+    // 数据可能已经在路上甚至已到达，只订阅一次，不重复 IPC。
+    const warmed = bucket(inFlightRequests, window.biny);
+    const pending = warmed.get(cacheKey);
+    warmed.delete(cacheKey);
     const request = projectId
-      ? window.biny.settingsSnapshot(projectId, sessionId).then((next) => {
+      ? (pending ?? window.biny.settingsSnapshot(projectId, sessionId)).then((next) => {
         if (!cancelled && snapshotRef.current === refreshBase) adoptSnapshot(next, refreshBase ? draftFromSnapshot(refreshBase) : undefined, reusable);
       })
       : window.biny.activitySettings().then((next) => {
@@ -146,6 +217,7 @@ export function SettingsDraftProvider({
         setGlobalActivity(next);
       });
     request
+      .then(() => { if (!cancelled) loadedGenerationRef.current = generation; })
       .catch((error: unknown) => {
         // 后台校验失败不该把已经能用的缓存内容换成一屏错误。
         if (!cancelled && !reusable) setLoadError(error instanceof Error ? error.message : String(error));
@@ -158,8 +230,8 @@ export function SettingsDraftProvider({
           lastLoadAttemptRef.current = loadAttempt;
         }
       });
-    return () => { cancelled = true; loadGenerationRef.current += 1; };
-  }, [active, adoptSnapshot, cacheKey, loadAttempt, projectId, sessionId]);
+    return () => { cancelled = true; };
+  }, [active, loadSnapshot, adoptSnapshot, cacheKey, importRevision, loadAttempt, projectId, sessionId]);
 
   const retryLoad = useCallback((): void => {
     // 重试只用于初次读取失败；已存在的跨页草稿不能被刷新覆盖。
@@ -168,11 +240,10 @@ export function SettingsDraftProvider({
 
   const saveGlobalPreference = useCallback(async (save: () => Promise<void>): Promise<boolean> => {
     setSaveState("saving");
-    setSaveError(undefined);
     try { await save(); return true; }
-    catch (error) { setSaveError(error instanceof Error ? error.message : String(error)); return false; }
+    catch (error) { onNotify(error instanceof Error ? error.message : String(error)); return false; }
     finally { setSaveState("clean"); }
-  }, []);
+  }, [onNotify]);
 
   const setThemePreference = useCallback((value: DesktopThemePreference): void => {
     if (!projectId) {
@@ -189,15 +260,6 @@ export function SettingsDraftProvider({
     }
     setDraft((current) => current ? { ...current, fontPreference: value } : current);
   }, [onFontPreview, projectId, saveGlobalPreference]);
-
-  const setAppearancePreference = useCallback(async (value: AppearancePreference): Promise<boolean> => {
-    if (!projectId) {
-      return saveGlobalPreference(async () => onAppearancePreview?.(await window.biny.setAppearancePreference(value)));
-    }
-    setDraft((current) => current ? { ...current, appearancePreference: value } : current);
-    return true;
-  }, [onAppearancePreview, projectId, saveGlobalPreference]);
-
 
   const updateActivityImmediately = useCallback((patch: DesktopActivitySettingsPatch): Promise<void> => {
     const operation = activityUpdateTailRef.current.then(async () => {
@@ -238,9 +300,11 @@ export function SettingsDraftProvider({
     setDraft((current) => current ? { ...current, chatParams: value } : current);
   }, []);
 
-  const setToolExecutionMode = useCallback((value: DesktopSettingsSnapshot["toolExecutionMode"]): void => {
-    setDraft((current) => current ? { ...current, toolExecutionMode: value } : current);
+  const setSubagent = useCallback((value: DesktopSettingsSnapshot["subagent"]): void => {
+    setDraft((current) => current ? { ...current, subagent: value } : current);
   }, []);
+
+
 
   const setPermission = useCallback((value: DesktopPermissionSettings): void => {
     setDraft((current) => current ? { ...current, permission: value } : current);
@@ -248,6 +312,10 @@ export function SettingsDraftProvider({
 
   const setWebSearch = useCallback((value: DesktopWebSearchSettingsInput): void => {
     setDraft((current) => current ? { ...current, webSearch: value } : current);
+  }, []);
+
+  const setRedaction = useCallback((value: DesktopRedactionSettingsInput): void => {
+    setDraft((current) => current ? { ...current, redaction: value } : current);
   }, []);
 
   const setChat = useCallback((value: DesktopChatPersonalizationOverride): void => {
@@ -341,13 +409,19 @@ export function SettingsDraftProvider({
     await window.biny.releaseSettingsCredentials([handle]);
   }, []);
 
-  const dirtyCount = snapshot && draft ? countDirtyFields(snapshot, draft) : 0;
-  const nonPreferenceDirtyCount = snapshot && draft ? countNonPreferenceDirtyFields(snapshot, draft) : 0;
+  const { dirtyCount, nonPreferenceDirtyCount } = useMemo(() => {
+    if (!snapshot || !draft) return { dirtyCount: 0, nonPreferenceDirtyCount: 0 };
+    const nonPreferenceDirtyCount = countNonPreferenceDirtyFields(snapshot, draft);
+    return { dirtyCount: countPreferenceDirtyFields(snapshot, draft) + nonPreferenceDirtyCount, nonPreferenceDirtyCount };
+  }, [snapshot, draft]);
   // 主题和字体只影响 DesktopStateStore，不会改变运行中的 Agent 配置。
   const preferencesOnly = dirtyCount > 0 && nonPreferenceDirtyCount === 0;
   const invalid = draft ? !validDraft(draft) : false;
-  const runtimeBusy = sessionRunning || snapshot?.hasRunningTasks === true;
-  const runtimeBlocked = runtimeBusy && !preferencesOnly;
+  const projectSkillsOnly = nonPreferenceDirtyCount === 1 && snapshot && draft
+    && sameJson(draft.skills.globalDefaults, snapshot.skills.globalDefaults)
+    && !sameJson(draft.skills.projectOverrides, snapshot.skills.projectOverrides);
+  // 全局忙态不能推断目标项目忙；项目范围写入仍由后端即时复核准入。
+  const runtimeBlocked = !preferencesOnly && (sessionRunning || (snapshot?.hasRunningTasks === true && !projectSkillsOnly));
   const canSave = active
     && dirtyCount > 0
     && draft !== undefined
@@ -357,13 +431,14 @@ export function SettingsDraftProvider({
     && saveState !== "rolling_back"
     && saveState !== "recovery_required";
 
+  const dirty = dirtyCount > 0 || pendingModelEdits || saveState === "saving";
   useLayoutEffect(() => {
     void window.biny.updateSettingsDraftState({
-      dirty: dirtyCount > 0 || pendingModelEdits || saveState === "saving",
+      dirty,
       canSave,
       open: active
     }).catch(() => undefined);
-  }, [active, canSave, dirtyCount, pendingModelEdits, saveState]);
+  }, [active, canSave, dirty]);
 
   useEffect(() => {
     if (saveState === "saving" || saveState === "rolling_back" || saveState === "recovery_required") return;
@@ -389,23 +464,30 @@ export function SettingsDraftProvider({
       adoptSnapshot(snapshot);
       onThemePreview(snapshot.themePreference);
       onFontPreview(snapshot.fontPreference);
-      onAppearancePreview?.(normalizeAppearancePreference(snapshot.appearancePreference));
     }
     await window.biny.updateSettingsDraftState({ dirty: false, canSave: false, open: active }).catch(() => undefined);
-  }, [active, adoptSnapshot, onAppearancePreview, onFontPreview, onThemePreview, releaseAllCredentials, snapshot]);
+  }, [active, adoptSnapshot, onFontPreview, onThemePreview, releaseAllCredentials, snapshot]);
 
   // 即时保存只携带本次增量；依赖模型偏好的更新在队列内根据最新快照计算。
   const modelsSaveTailRef = useRef<Promise<unknown>>(Promise.resolve());
+  const modelSaveFailuresRef = useRef(0);
   const pendingModelSavesRef = useRef(0);
+  const pendingModelSelectionSavesRef = useRef(0);
   const modelEditorsRef = useRef(new Set<() => Promise<boolean>>());
   const registerModelEditor = useCallback((flush: () => Promise<boolean>): (() => void) => {
     modelEditorsRef.current.add(flush);
     return () => { modelEditorsRef.current.delete(flush); };
   }, []);
   const flushModelEdits = useCallback(async (): Promise<boolean> => {
+    const failures = modelSaveFailuresRef.current;
     for (const flush of modelEditorsRef.current) if (!await flush()) return false;
-    await modelsSaveTailRef.current;
-    return true;
+    let tail: Promise<unknown>;
+    do {
+      tail = modelsSaveTailRef.current;
+      await tail;
+    } while (tail !== modelsSaveTailRef.current);
+    // 只阻止本轮等待期间的失败；用户看见错误后仍可再次主动关闭。
+    return failures === modelSaveFailuresRef.current;
   }, []);
 
   const saveModels = useCallback(async (update: DesktopSettingsModelsInput | ((snapshot: DesktopSettingsSnapshot) => DesktopSettingsModelsInput)): Promise<DesktopSettingsSaveResult | undefined> => {
@@ -416,8 +498,10 @@ export function SettingsDraftProvider({
       return undefined;
     }
     const generation = loadGenerationRef.current;
+    const selectionOnly = typeof update !== "function" && isModelSelectionUpdate(update);
     pendingModelSavesRef.current += 1;
-    setSaveError(undefined);
+    if (selectionOnly) pendingModelSelectionSavesRef.current += 1;
+    setModelSelectionSaving(pendingModelSelectionSavesRef.current === pendingModelSavesRef.current);
     setSaveState("saving");
     const operation = modelsSaveTailRef.current.then(async (): Promise<DesktopSettingsSaveResult | undefined> => {
       // 队列执行时取最新基线：前一笔即时保存可能已经推进了 configRevision。
@@ -425,60 +509,67 @@ export function SettingsDraftProvider({
       if (!snapshotNow || generation !== loadGenerationRef.current) throw new Error("设置页面已切换，请重新操作。");
       if (snapshotNow.pendingRecovery) throw new Error("存在未恢复的保存事务，请先处理再修改模型配置。");
       const models = typeof update === "function" ? update(snapshotNow) : update;
-      const toolModelOnly = models.toolModel !== undefined && models.upserts.length === 0 && models.removeAliases.length === 0
-        && Object.keys(models).every((key) => key === "upserts" || key === "removeAliases" || key === "toolModel");
+      const modelSelectionOnly = isModelSelectionUpdate(models);
       const result = await window.biny.saveSettings(snapshotNow.projectId, {
         expectedPreferenceRevision: snapshotNow.preferenceRevision,
         expectedConfigRevision: snapshotNow.configRevision,
         models
       });
-      if (generation !== loadGenerationRef.current) return result;
+      if (generation !== loadGenerationRef.current) return undefined;
       if (result.status === "committed") {
+        const nextSnapshot = committedSettingsSnapshot(snapshotRef.current ?? snapshotNow, result);
+        writePersistedSnapshot(window.biny, cacheKeyRef.current, nextSnapshot);
         // 模型变更可能同时改变后端派生的默认设置。未编辑字段跟随新快照，
         // 只有真正偏离旧基线的字段才保留，避免旧默认值造成幽灵 dirty 状态。
-        snapshotRef.current = result.snapshot;
-        setSnapshot(result.snapshot);
-        setSaveState(result.snapshot.pendingRecovery ? "recovery_required" : pendingModelSavesRef.current > 1 ? "saving" : "clean");
-        setDraft((current) => current ? {
-          ...rebaseUneditedFields(current, draftFromSnapshot(snapshotNow), draftFromSnapshot(result.snapshot)),
-          models: toolModelOnly ? current.models : {
+        snapshotRef.current = nextSnapshot;
+        setSnapshot(nextSnapshot);
+        setSaveState(nextSnapshot.pendingRecovery ? "recovery_required" : pendingModelSavesRef.current > 1 ? "saving" : "clean");
+        if (!result.modelSelection) setDraft((current) => current ? {
+          ...rebaseUneditedFields(current, draftFromSnapshot(snapshotNow), draftFromSnapshot(nextSnapshot)),
+          models: modelSelectionOnly ? current.models : {
             upserts: [],
             removeAliases: [],
             defaultModel: undefined,
             oauthCredentialHandles: current.models.oauthCredentialHandles.filter((handle) => !models.oauthCredentialHandles?.includes(handle)),
-            modelProfiles: structuredClone(result.snapshot.models.modelProfiles ?? {})
+            modelProfiles: structuredClone(nextSnapshot.models.modelProfiles ?? {})
           }
         } : current);
-        onCommitted(result.snapshot);
+        onCommitted(nextSnapshot, modelSelectionOnly ? "models" : "model-config");
       } else if (result.status === "rolled_back") {
-        setSnapshot(result.snapshot);
-        snapshotRef.current = result.snapshot;
-        setSaveState(dirtyCount > 0 ? "dirty" : "clean");
-        setSaveError(result.message ?? "模型设置保存失败，已恢复原设置；请在对应字段重试。");
-        onNotify(result.message ?? (result.conflicts?.length ? "模型设置已在其他位置更改，请重试" : "模型设置保存失败，已恢复原设置"));
+        const nextSnapshot = result.snapshot ?? { ...(snapshotRef.current ?? snapshotNow), ...(result.settings ?? result.preferences) };
+        setSnapshot(nextSnapshot);
+        snapshotRef.current = nextSnapshot;
+        setSaveState(pendingModelSavesRef.current > 1 ? "saving" : dirtyCount > 0 ? "dirty" : "clean");
+        if (!modelSelectionOnly) onNotify(result.message ?? (result.conflicts?.length ? "模型设置已在其他位置更改，请重试" : "模型设置保存失败，已恢复原设置"));
       } else {
         setSaveState("recovery_required");
+        setSaveError(result.message);
         onNotify(result.message);
       }
       return result;
     });
-    modelsSaveTailRef.current = operation.then(() => undefined, () => undefined);
+    modelsSaveTailRef.current = operation.then(
+      result => { if (result?.status !== "committed") modelSaveFailuresRef.current += 1; },
+      () => { modelSaveFailuresRef.current += 1; }
+    );
     try {
       return await operation;
     } catch (error) {
-      if (generation === loadGenerationRef.current) {
-        setSaveState(dirtyCount > 0 ? "dirty" : "clean");
-        setSaveError(error instanceof Error ? error.message : String(error));
-      }
+      if (generation !== loadGenerationRef.current) return undefined;
+      setSaveState(pendingModelSavesRef.current > 1 ? "saving" : dirtyCount > 0 ? "dirty" : "clean");
       throw error;
     } finally {
       pendingModelSavesRef.current -= 1;
+      if (selectionOnly) pendingModelSelectionSavesRef.current -= 1;
+      setModelSelectionSaving(pendingModelSavesRef.current > 0 && pendingModelSelectionSavesRef.current === pendingModelSavesRef.current);
     }
   }, [dirtyCount, onCommitted, onNotify, saveState]);
 
   const saveAll = useCallback(async (): Promise<DesktopSettingsSaveResult | undefined> => {
     if (!snapshot || !draft || runtimeBlocked || invalid || dirtyCount === 0 || saveState === "recovery_required" || saveState === "saving" || saveState === "rolling_back") return undefined;
     const loadGeneration = loadGenerationRef.current;
+    const manualSaveRequest = ++manualSaveRequestRef.current;
+    setManualSaving(true);
     setSaveError(undefined);
     setSaveState("saving");
     // 看门狗：保存走单互斥事务，前序操作若撞上 Keychain security 超时可能长时间占用；
@@ -492,19 +583,20 @@ export function SettingsDraftProvider({
       // 关闭或切换项目/会话后，旧事务仍可完成，但不能覆盖新页面的草稿或保存状态。
       if (loadGenerationRef.current !== loadGeneration) return result;
       if (result.status === "committed") {
+        const nextSnapshot = committedSettingsSnapshot(snapshotRef.current ?? snapshot, result);
         credentialHandlesRef.current.clear();
-        adoptSnapshot(result.snapshot, draft);
+        adoptSnapshot(nextSnapshot, draft);
         // 关闭握手由 layout effect 投影实际剩余草稿，不把保存期间的新编辑标记为已保存。
-        onCommitted(result.snapshot);
+        onCommitted(nextSnapshot, result.preferences ? "preferences" : result.settings ? "settings" : undefined, result.appliedFields);
       } else if (result.status === "rolled_back") {
         // 后端已验证补偿完成；只更新 CAS 基线，用户的草稿值继续保留以便处理冲突后重试。
-        setSnapshot(result.snapshot);
-        snapshotRef.current = result.snapshot;
+        const nextSnapshot = result.snapshot ?? { ...(snapshotRef.current ?? snapshot), ...(result.settings ?? result.preferences) };
+        setSnapshot(nextSnapshot);
+        snapshotRef.current = nextSnapshot;
         // 主题和字体是未落盘的即时预览。补偿完成后 UI 必须先恢复权威值，
         // 但不能丢掉草稿本身，用户仍可修正冲突后再次保存。
-        onThemePreview(result.snapshot.themePreference);
-        onFontPreview(result.snapshot.fontPreference);
-        onAppearancePreview?.(normalizeAppearancePreference(result.snapshot.appearancePreference));
+        onThemePreview(nextSnapshot.themePreference);
+        onFontPreview(nextSnapshot.fontPreference);
         setSaveState("dirty");
         const message = result.message ?? (result.conflicts?.length ? "设置已在其他位置更改，请检查冲突后重试" : "保存失败，已恢复原设置");
         setSaveError(message);
@@ -524,8 +616,9 @@ export function SettingsDraftProvider({
       return undefined;
     } finally {
       if (watchdog !== undefined) clearTimeout(watchdog);
+      if (manualSaveRequestRef.current === manualSaveRequest) setManualSaving(false);
     }
-  }, [adoptSnapshot, dirtyCount, draft, invalid, onAppearancePreview, onCommitted, onFontPreview, onNotify, onThemePreview, runtimeBlocked, saveState, snapshot]);
+  }, [adoptSnapshot, dirtyCount, draft, invalid, onCommitted, onFontPreview, onNotify, onThemePreview, runtimeBlocked, saveState, snapshot]);
 
   const value = useMemo<SettingsDraftContextValue>(() => ({
     snapshot,
@@ -538,21 +631,24 @@ export function SettingsDraftProvider({
     saveError,
     dirtyCount,
     preferencesOnly,
+    runtimeBlocked,
     invalid,
     saveState,
+    manualSaving,
+    modelSelectionSaving,
     pendingModelEdits,
     reportModelEditState,
     setThemePreference,
     setFontPreference,
-    setAppearancePreference,
     updateActivityImmediately,
     setIdentity,
     setMemory,
     setCompaction,
     setChatParams,
-    setToolExecutionMode,
+    setSubagent,
     setPermission,
     setWebSearch,
+    setRedaction,
     setChat,
     setSkills,
     upsertModel,
@@ -570,6 +666,7 @@ export function SettingsDraftProvider({
     registerModelEditor,
     flushModelEdits,
     addOauthCredentialHandle,
+    modelSelectionSaving,
     pendingModelEdits,
     dirtyCount,
     discard,
@@ -586,20 +683,22 @@ export function SettingsDraftProvider({
     saveAll,
     saveModels,
     saveState,
+    manualSaving,
     preferencesOnly,
+    runtimeBlocked,
     setChat,
     setChatParams,
-    setToolExecutionMode,
+    setSubagent,
     setCompaction,
     setModelProfile,
     setFontPreference,
-    setAppearancePreference,
     setMemory,
     setPermission,
     updateActivityImmediately,
     setIdentity,
     setThemePreference,
     setWebSearch,
+    setRedaction,
     setSkills,
     snapshot,
     stageCredential,
@@ -613,15 +712,15 @@ function draftFromSnapshot(snapshot: DesktopSettingsSnapshot): DesktopSettingsDr
   return {
     themePreference: snapshot.themePreference,
     fontPreference: { ...snapshot.fontPreference },
-    appearancePreference: normalizeAppearancePreference(snapshot.appearancePreference),
     activity: activityInputFromSnapshot(snapshot.activity),
     identity: structuredClone(snapshot.identity),
     memory: structuredClone(snapshot.memory),
     compaction: structuredClone(snapshot.compaction),
     chatParams: structuredClone(snapshot.chatParams),
-    toolExecutionMode: snapshot.toolExecutionMode,
+    subagent: structuredClone(snapshot.subagent),
     permission: structuredClone(snapshot.permission),
     webSearch: webSearchInput(snapshot.webSearch),
+    redaction: redactionInput(snapshot.redaction),
     chat: snapshot.chat ? structuredClone(snapshot.chat.personalization) : undefined,
     models: {
       upserts: [],
@@ -653,12 +752,11 @@ function webSearchInput(value: DesktopWebSearchSettings): DesktopWebSearchSettin
   };
 }
 
-function countDirtyFields(snapshot: DesktopSettingsSnapshot, draft: DesktopSettingsDraft): number {
+function countPreferenceDirtyFields(snapshot: DesktopSettingsSnapshot, draft: DesktopSettingsDraft): number {
   let count = 0;
   if (draft.themePreference !== snapshot.themePreference) count += 1;
   if (!sameJson(draft.fontPreference, snapshot.fontPreference)) count += 1;
-  if (!sameJson(draft.appearancePreference, normalizeAppearancePreference(snapshot.appearancePreference))) count += 1;
-  return count + countNonPreferenceDirtyFields(snapshot, draft);
+  return count;
 }
 
 function countNonPreferenceDirtyFields(snapshot: DesktopSettingsSnapshot, draft: DesktopSettingsDraft): number {
@@ -668,9 +766,10 @@ function countNonPreferenceDirtyFields(snapshot: DesktopSettingsSnapshot, draft:
   if (!sameJson(draft.memory, snapshot.memory)) count += 1;
   if (!sameJson(draft.compaction, snapshot.compaction)) count += 1;
   if (!sameJson(draft.chatParams, snapshot.chatParams)) count += 1;
-  if (draft.toolExecutionMode !== snapshot.toolExecutionMode) count += 1;
+  if (!sameJson(draft.subagent, snapshot.subagent)) count += 1;
   if (!sameJson(draft.permission, snapshot.permission)) count += 1;
   if (!sameWebSearch(draft.webSearch, snapshot.webSearch)) count += 1;
+  if (!sameRedaction(draft.redaction, snapshot.redaction)) count += 1;
   if (draft.models.upserts.length || draft.models.removeAliases.length || draft.models.defaultModel || draft.models.oauthCredentialHandles.length
     || !sameJson(draft.models.modelProfiles, snapshot.models.modelProfiles ?? {})) count += 1;
   if (snapshot.chat && draft.chat && !sameJson(draft.chat, snapshot.chat.personalization)) count += 1;
@@ -679,6 +778,8 @@ function countNonPreferenceDirtyFields(snapshot: DesktopSettingsSnapshot, draft:
 }
 
 function validDraft(draft: DesktopSettingsDraft): boolean {
+  if (draft.subagent.enabled && draft.subagent.runtime === "acp" && !draft.subagent.providerAlias?.trim() && !draft.subagent.model?.trim()) return false;
+  if (draft.subagent.enabled && draft.subagent.runtime === "codex" && !draft.subagent.model?.trim()) return false;
   const compaction = draft.compaction;
   if (compaction.triggerPercent !== undefined && (compaction.triggerPercent < 0.5 || compaction.triggerPercent > 0.95)) return false;
   if (compaction.keepRecentMessages !== undefined && (!Number.isInteger(compaction.keepRecentMessages) || compaction.keepRecentMessages < 1 || compaction.keepRecentMessages > 500)) return false;
@@ -713,15 +814,15 @@ function saveInput(snapshot: DesktopSettingsSnapshot, draft: DesktopSettingsDraf
     expectedConfigRevision: snapshot.configRevision,
     themePreference: draft.themePreference === snapshot.themePreference ? undefined : draft.themePreference,
     fontPreference: sameJson(draft.fontPreference, snapshot.fontPreference) ? undefined : draft.fontPreference,
-    appearancePreference: sameJson(draft.appearancePreference, normalizeAppearancePreference(snapshot.appearancePreference)) ? undefined : draft.appearancePreference,
     activity: sameJson(draft.activity, activityInputFromSnapshot(snapshot.activity)) ? undefined : draft.activity,
     identity: sameJson(draft.identity, snapshot.identity) ? undefined : draft.identity,
     memory: sameJson(draft.memory, snapshot.memory) ? undefined : draft.memory,
     compaction: sameJson(draft.compaction, snapshot.compaction) ? undefined : draft.compaction,
     chatParams: sameJson(draft.chatParams, snapshot.chatParams) ? undefined : draft.chatParams,
-    toolExecutionMode: draft.toolExecutionMode === snapshot.toolExecutionMode ? undefined : draft.toolExecutionMode,
+    subagent: sameJson(draft.subagent, snapshot.subagent) ? undefined : draft.subagent,
     permission: sameJson(draft.permission, snapshot.permission) ? undefined : draft.permission,
     webSearch: sameWebSearch(draft.webSearch, snapshot.webSearch) ? undefined : draft.webSearch,
+    redaction: sameRedaction(draft.redaction, snapshot.redaction) ? undefined : draft.redaction,
     skills: sameJson(draft.skills, skillInputFromSnapshot(snapshot.skills)) ? undefined : draft.skills,
     models: modelsDirty ? {
       upserts: draft.models.upserts,
@@ -760,6 +861,27 @@ function sameWebSearch(draft: DesktopWebSearchSettingsInput, snapshot: DesktopWe
     && draft.maxResults === snapshot.maxResults;
 }
 
+function redactionInput(value: DesktopRedactionSettings | undefined): DesktopRedactionSettingsInput {
+  return { enabled: value?.enabled ?? false };
+}
+
+function sameRedaction(draft: DesktopRedactionSettingsInput, snapshot: DesktopRedactionSettings | undefined): boolean {
+  return draft.enabled === (snapshot?.enabled ?? false);
+}
+
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isModelSelectionUpdate(models: DesktopSettingsModelsInput): boolean {
+  return (models.toolModel !== undefined || models.visionModel !== undefined || models.visionModelEnabled !== undefined)
+    && models.upserts.length === 0 && models.removeAliases.length === 0
+    && Object.keys(models).every((key) => key === "upserts" || key === "removeAliases" || key === "toolModel" || key === "visionModel" || key === "visionModelEnabled");
+}
+
+function committedSettingsSnapshot(base: DesktopSettingsSnapshot, result: Extract<DesktopSettingsSaveResult, { status: "committed" }>): DesktopSettingsSnapshot {
+  if (result.snapshot) return result.snapshot;
+  if (result.settings) return { ...base, ...result.settings };
+  if (result.preferences) return { ...base, ...result.preferences };
+  return { ...base, ...result.modelSelection, models: { ...base.models, ...result.modelSelection.models } };
 }

@@ -4,7 +4,7 @@
  * 主进程为所有项目共用一条事件通道。本 hook 负责有界批处理、按项目/会话过滤、刷新终态快照，
  * 并把结果写回 React 状态；组件无需理解事件时序或处理流式输出的高频更新。
  */
-import { useEffect, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { ContextBudgetStatus } from "../../../../agent/context/types.js";
 import { isTerminalRunEvent, type AgentHostEvent } from "../../../../runtime/agentEvents.js";
 import type {
@@ -19,16 +19,18 @@ import { createSessionEventBuffer } from "./sessionEventBuffer.js";
 import { appendLiveTimelineEvents, liveTimelineEvents } from "../sessionTimeline.js";
 import { createDesktopEventBatcher } from "./desktopEventBatcher.js";
 import { applyUpdatesToSidebarSessions, applyUpdatesToWorkspace, hasContextStatus } from "./desktopState.js";
+import { invalidateToolOptimizationStats } from "../components/settings/toolOptimizationState.js";
 
 /** 聊天内 Recipe 提示卡的数据；从 `recipe.ready` host event 提取。 */
 export interface RecipeNotice extends DesktopRecipeSuggestion {
   sessionId: string;
 }
 
-/** 技能提取卡状态；同一会话同时只有一个提取在跑，阶段事件直接覆盖。 */
+/** 技能提取卡状态；运行身份防止旧提取的跳过通知清掉较新的卡片。 */
 export interface SkillExtractionCardState {
   sessionId: string;
-  stage: "extracting" | "saving" | "done";
+  runId: string;
+  stage: "extracting" | "saving" | "done" | "failed";
   skillName?: string;
   skillDescription?: string;
   updated?: boolean;
@@ -40,7 +42,8 @@ interface DesktopEventBridgeOptions {
   selectedSessionIdRef: { current: string | undefined };
   /** 当前会话文档；判断 pending 缓冲是否已被 openSession 的主进程桶覆盖时读取。 */
   documentRef: RefObject<DesktopSessionDocument | undefined>;
-  mergeProjectSnapshot(snapshot: DesktopWorkspaceSnapshot): void;
+  /** 过期结果不能直接发布，但其目标会话仍须合入后续读取。 */
+  readSessionCatalog(projectId: string, sessionIds: string[]): Promise<(allowPublish: boolean) => void>;
   onError(error: unknown): void;
   setContextBudget: Dispatch<SetStateAction<ContextBudgetStatus | undefined>>;
   setDocument: Dispatch<SetStateAction<DesktopSessionDocument | undefined>>;
@@ -64,7 +67,7 @@ export function useDesktopEventBridge({
   activeProjectIdRef,
   selectedSessionIdRef,
   documentRef,
-  mergeProjectSnapshot,
+  readSessionCatalog,
   onError,
   setContextBudget,
   setDocument,
@@ -77,7 +80,13 @@ export function useDesktopEventBridge({
   onGenerationError,
   onCompactionStarted,
   onCompactionFailed
-}: DesktopEventBridgeOptions): void {
+}: DesktopEventBridgeOptions): (projectId: string) => void {
+  const projectRefreshEpochs = useRef(new Map<string, number>());
+  const pendingEvents = useRef(createSessionEventBuffer<DesktopAgentEventEnvelope>());
+  const replaySelectedEvents = useRef<(() => void) | undefined>(undefined);
+  const invalidateProjectRefresh = useCallback((projectId: string): void => {
+    projectRefreshEpochs.current.set(projectId, (projectRefreshEpochs.current.get(projectId) ?? 0) + 1);
+  }, []);
   const [pendingRefresh, setPendingRefresh] = useState<{
     document: DesktopSessionDocument;
     isCurrent(): boolean;
@@ -86,32 +95,143 @@ export function useDesktopEventBridge({
   useEffect(() => {
     let active = true;
     let documentRefreshGeneration = 0;
-    const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
-    const pendingEvents = createSessionEventBuffer<DesktopAgentEventEnvelope>();
+    const refreshTimers = new Map<string, {
+      timer: ReturnType<typeof setTimeout>;
+      sessionIds: Set<string>;
+      documentSessionIds: Set<string>;
+    }>();
+    const projectRefreshOrder = new Map<string, { issued: number; applied: number }>();
 
-    const scheduleRefresh = (projectId: string, sessionId: string): void => {
-      const scope = JSON.stringify([projectId, sessionId]);
-      const existing = refreshTimers.get(scope);
-      if (existing) clearTimeout(existing);
+    const scheduleRefresh = (projectId: string, sessionId: string, refreshDocument = true): void => {
+      const existing = refreshTimers.get(projectId);
+      if (existing) clearTimeout(existing.timer);
+      const sessionIds = existing?.sessionIds ?? new Set<string>();
+      const documentSessionIds = existing?.documentSessionIds ?? new Set<string>();
+      sessionIds.add(sessionId);
+      if (refreshDocument) documentSessionIds.add(sessionId);
       const timer = setTimeout(() => {
-        refreshTimers.delete(scope);
-        void window.biny.refreshProject(projectId).then(async (snapshot) => {
+        refreshTimers.delete(projectId);
+        const epoch = projectRefreshEpochs.current.get(projectId) ?? 0;
+        const order = projectRefreshOrder.get(projectId) ?? { issued: 0, applied: 0 };
+        projectRefreshOrder.set(projectId, order);
+        const request = ++order.issued;
+        void readSessionCatalog(projectId, [...sessionIds]).then(async (publishCatalog) => {
           if (!active) return;
-          mergeProjectSnapshot(snapshot);
-          if (activeProjectIdRef.current === projectId && selectedSessionIdRef.current === sessionId) {
+          // A confirmed metadata change supplies newer session metadata. Re-read after the
+          // existing debounce instead of combining its metadata with this older read.
+          if ((projectRefreshEpochs.current.get(projectId) ?? 0) !== epoch) {
+            for (const id of sessionIds) scheduleRefresh(projectId, id, documentSessionIds.has(id));
+            return;
+          }
+          // Different sessions share a project catalog. An older request may still
+          // refresh the selected document, but cannot replace a newer applied catalog.
+          // Failed newer requests do not prevent an older successful read publishing.
+          const selectedSessionId = selectedSessionIdRef.current;
+          const refreshSelectedDocument = activeProjectIdRef.current === projectId && selectedSessionId !== undefined
+            && documentSessionIds.has(selectedSessionId);
+          const allowPublish = request > order.applied;
+          if (allowPublish) {
+            order.applied = request;
+          }
+          publishCatalog(allowPublish);
+          if (refreshSelectedDocument && selectedSessionId) {
             const generation = ++documentRefreshGeneration;
             const requestedDocument = documentRef.current;
-            const refreshedDocument = await window.biny.openSession(projectId, sessionId);
+            const refreshedDocument = await window.biny.openSession(projectId, selectedSessionId);
             // 同一会话也可能已经收到新流式内容、切换消息版本或重新打开，旧回读不能覆盖它。
             const isCurrent = (): boolean => active && documentRefreshGeneration === generation
               && activeProjectIdRef.current === projectId
-              && selectedSessionIdRef.current === sessionId && documentRef.current === requestedDocument;
+              && selectedSessionIdRef.current === selectedSessionId && documentRef.current === requestedDocument;
             if (isCurrent()) setPendingRefresh({ document: refreshedDocument, isCurrent });
           }
         }).catch((error: unknown) => { if (active) onError(error); });
       }, 260);
-      refreshTimers.set(scope, timer);
+      refreshTimers.set(projectId, { timer, sessionIds, documentSessionIds });
     };
+
+    const flushSelectedEvents = (projectBatch: DesktopAgentEventEnvelope[]): void => {
+      const currentSessionId = selectedSessionIdRef.current;
+      const currentEvents: AgentHostEvent[] = [];
+      const doc = documentRef.current;
+      // 头部事件可能先于会话选中到达（草稿首发时 message.user / run.started 先于 receipt）：
+      // 未命中当前会话的事件按会话暂存，不能丢——historicalPrefix 依赖这些锚点截断历史。
+      // 会话选中后，文档还是空占位时原序回放缓冲；文档已带该会话内容（openSession 的
+      // 主进程桶是超集）则整体作废，避免同一批事件被折叠两次。
+      for (const envelope of projectBatch) {
+        const event = envelope.event;
+        // Titles belong to the catalog; changing history identity here would
+        // cancel a pending terminal read even though no conversation content changed.
+        if (event === undefined || event.type === "session.title") continue;
+        if (currentSessionId !== undefined && event.sessionId === currentSessionId
+          && doc?.session.id === currentSessionId) currentEvents.push(event);
+        else if (event.sessionId !== undefined) pendingEvents.current.hold(event.sessionId, envelope);
+      }
+      if (currentSessionId && doc?.session.id === currentSessionId) {
+        if (doc.events.length > 0 || doc.liveEvents.length > 0) {
+          pendingEvents.current.take(currentSessionId, true);
+        } else {
+          const drained = pendingEvents.current.take(currentSessionId)
+            .map((envelope) => envelope.event)
+            .filter((event): event is AgentHostEvent => event !== undefined);
+          currentEvents.unshift(...drained);
+        }
+        if (!currentEvents.length) return;
+        // recipe.ready / skill_extraction.updated 是提示通知而非对话内容：
+        // 不进消息时间线，分别驱动聊天内卡片。
+        const recipeNotices = currentEvents.filter((event) => event.type === "recipe.ready");
+        if (recipeNotices.length) {
+          setRecipeNotices((current) => {
+            const seen = new Set(current.map((notice) => notice.id));
+            const fresh = recipeNotices
+              .filter((event) => !seen.has(event.recipe.id))
+              .map((event) => ({ ...event.recipe, sessionId: currentSessionId }));
+            return fresh.length ? [...current, ...fresh] : current;
+          });
+        }
+        for (const event of currentEvents) {
+          if (event.type === "run.started") setSkillExtraction(undefined);
+          if (event.type === "skill_extraction.updated") {
+            if (event.stage === "analyzing") continue;
+            if (event.stage === "skipped") {
+              setSkillExtraction((current) => current?.sessionId === event.sessionId && current.runId === event.runId
+                ? undefined : current);
+              continue;
+            }
+            setSkillExtraction({
+              sessionId: currentSessionId,
+              runId: event.runId,
+              stage: event.stage,
+              skillName: event.skillName,
+              skillDescription: event.skillDescription,
+              updated: event.updated
+            });
+          }
+        }
+        const timelineSource = recipeNotices.length || currentEvents.some((event) => event.type === "skill_extraction.updated")
+          ? currentEvents.filter((event) => event.type !== "recipe.ready" && event.type !== "skill_extraction.updated")
+          : currentEvents;
+        const timelineEvents = liveTimelineEvents(timelineSource);
+        if (timelineEvents.length) {
+          setDocument((current) => current?.session.id === currentSessionId
+            ? { ...current, liveEvents: appendLiveTimelineEvents(current.liveEvents, timelineEvents) }
+            : current);
+        }
+        const contextEvents = currentEvents.filter(hasContextStatus);
+        const latestContext = contextEvents.at(-1);
+        if (latestContext) setContextBudget(latestContext.context.budget);
+        // 按事件顺序更新瞬态提示，确保同一批中后开始的运行清掉前一轮失败。
+        for (const event of currentEvents) {
+          if (event.type === "run.started") {
+            onGenerationStarted();
+          }
+          if (event.type === "run.failed") onGenerationError(event.error.trim() || "生成失败，请重试。");
+          if (event.type === "run.incomplete" || event.type === "run.blocked") onGenerationError(event.reason.trim() || "生成失败，请重试。");
+          if (event.type === "compact.started") onCompactionStarted?.(event.runId);
+          if (event.type === "compact.failed") onCompactionFailed?.(event.error, event.cancelled, event.runId);
+        }
+      }
+    };
+    replaySelectedEvents.current = () => flushSelectedEvents([]);
 
     const flushEvents = (batch: DesktopAgentEventEnvelope[]): void => {
       setSidebarSessions((current) => applyUpdatesToSidebarSessions(current, batch));
@@ -120,104 +240,47 @@ export function useDesktopEventBridge({
         ? batch.filter((envelope) => envelope.projectId === activeProjectId)
         : [];
       if (projectBatch.length) {
-        if (projectBatch.some(({ event }) => !event || event.type === "tool.completed" || event.type === "tool.failed" || isTerminalRunEvent(event))) {
+        if (projectBatch.some(({ event, snapshot }) => {
+          const sessionId = event?.sessionId ?? snapshot.info.sessionId;
+          if (sessionId !== selectedSessionIdRef.current) return false;
+          return !event || isTerminalRunEvent(event)
+            || (event.type === "tool.completed" || event.type === "tool.failed")
+              && (event.tool === "TodoWrite" || event.tool === "PlanDraft" || event.tool === "PlanStart"
+                || event.tool === "PlanUpdate" || event.tool === "GoalUpdate");
+        })) {
           void onRuntimeProjectionChanged?.().catch(onError);
         }
         setWorkspace((current) => current && current.project.id === activeProjectId
           ? applyUpdatesToWorkspace(current, projectBatch)
           : current);
-        const currentSessionId = selectedSessionIdRef.current;
-        const currentEvents: AgentHostEvent[] = [];
-        // 头部事件可能先于会话选中到达（草稿首发时 message.user / run.started 先于 receipt）：
-        // 未命中当前会话的事件按会话暂存，不能丢——historicalPrefix 依赖这些锚点截断历史。
-        // 会话选中后，文档还是空占位时原序回放缓冲；文档已带该会话内容（openSession 的
-        // 主进程桶是超集）则整体作废，避免同一批事件被折叠两次。
-        for (const envelope of projectBatch) {
-          const event = envelope.event;
-          if (event === undefined) continue;
-          if (currentSessionId !== undefined && event.sessionId === currentSessionId) currentEvents.push(event);
-          else if (event.sessionId !== undefined) pendingEvents.hold(event.sessionId, envelope);
-        }
-        if (currentSessionId) {
-          const doc = documentRef.current;
-          if (doc?.session.id === currentSessionId && (doc.events.length > 0 || doc.liveEvents.length > 0)) {
-            pendingEvents.take(currentSessionId, true);
-          } else if (doc?.session.id === currentSessionId && doc.events.length === 0 && doc.liveEvents.length === 0) {
-            const drained = pendingEvents.take(currentSessionId)
-              .map((envelope) => envelope.event)
-              .filter((event): event is AgentHostEvent => event !== undefined);
-            currentEvents.unshift(...drained);
-          }
-          // recipe.ready / skill_extraction.updated 是提示通知而非对话内容：
-          // 不进消息时间线，分别驱动聊天内卡片。
-          const recipeNotices = currentEvents.filter((event) => event.type === "recipe.ready");
-          if (recipeNotices.length) {
-            setRecipeNotices((current) => {
-              const seen = new Set(current.map((notice) => notice.id));
-              const fresh = recipeNotices
-                .filter((event) => !seen.has(event.recipe.id))
-                .map((event) => ({ ...event.recipe, sessionId: currentSessionId }));
-              return fresh.length ? [...current, ...fresh] : current;
-            });
-          }
-          for (const event of currentEvents) {
-            if (event.type === "skill_extraction.updated") {
-              setSkillExtraction({
-                sessionId: currentSessionId,
-                stage: event.stage,
-                skillName: event.skillName,
-                skillDescription: event.skillDescription,
-                updated: event.updated
-              });
-            }
-          }
-          const timelineSource = recipeNotices.length || currentEvents.some((event) => event.type === "skill_extraction.updated")
-            ? currentEvents.filter((event) => event.type !== "recipe.ready" && event.type !== "skill_extraction.updated")
-            : currentEvents;
-          const timelineEvents = liveTimelineEvents(timelineSource);
-          if (timelineEvents.length) {
-            setDocument((current) => current?.session.id === currentSessionId
-              ? { ...current, liveEvents: appendLiveTimelineEvents(current.liveEvents, timelineEvents) }
-              : current);
-          }
-          const contextEvents = currentEvents.filter(hasContextStatus);
-          const latestContext = contextEvents.at(-1);
-          if (latestContext) setContextBudget(latestContext.context.budget);
-          // 按事件顺序更新瞬态提示，确保同一批中后开始的运行清掉前一轮失败。
-          for (const event of currentEvents) {
-            if (event.type === "run.started") {
-              onGenerationStarted();
-              // 新一轮开始：上一轮的技能提取卡退场。
-              setSkillExtraction(undefined);
-            }
-            if (event.type === "run.failed") onGenerationError(event.error.trim() || "生成失败，请重试。");
-            if (event.type === "run.incomplete" || event.type === "run.blocked") onGenerationError(event.reason.trim() || "生成失败，请重试。");
-            if (event.type === "compact.started") onCompactionStarted?.(event.runId);
-            if (event.type === "compact.failed") onCompactionFailed?.(event.error, event.cancelled, event.runId);
-          }
-        }
       }
 
-      const completedSessions = new Map<string, { projectId: string; sessionId: string }>();
+      flushSelectedEvents(projectBatch);
+
+      if (batch.some(({ event }) => event && isTerminalRunEvent(event))) invalidateToolOptimizationStats(window.biny);
+
       for (const envelope of batch) {
         const event = envelope.event;
         if (event && (isTerminalRunEvent(event) || event.type === "session.title" || event.type === "compact.completed" || event.type === "compact.failed")) {
-          completedSessions.set(JSON.stringify([envelope.projectId, event.sessionId]), { projectId: envelope.projectId, sessionId: event.sessionId });
+          scheduleRefresh(envelope.projectId, event.sessionId, event.type !== "session.title");
         }
       }
-      for (const { projectId, sessionId } of completedSessions.values()) scheduleRefresh(projectId, sessionId);
     };
 
     const batcher = createDesktopEventBatcher(flushEvents);
     const unsubscribe = window.biny.onAgentEvent(batcher.push);
     return () => {
       active = false;
+      replaySelectedEvents.current = undefined;
       unsubscribe();
       batcher.dispose();
-      for (const timer of refreshTimers.values()) clearTimeout(timer);
+      for (const { timer } of refreshTimers.values()) clearTimeout(timer);
       refreshTimers.clear();
     };
-  }, [activeProjectIdRef, documentRef, mergeProjectSnapshot, onError, selectedSessionIdRef, setContextBudget, setDocument, setRecipeNotices, setSkillExtraction, setSidebarSessions, setWorkspace, onGenerationError, onGenerationStarted, onCompactionStarted, onCompactionFailed, onRuntimeProjectionChanged]);
+  }, [activeProjectIdRef, documentRef, readSessionCatalog, onError, selectedSessionIdRef, setContextBudget, setDocument, setRecipeNotices, setSkillExtraction, setSidebarSessions, setWorkspace, onGenerationError, onGenerationStarted, onCompactionStarted, onCompactionFailed, onRuntimeProjectionChanged]);
+
+  // 首发回执可能晚于整轮事件；文档就绪就回放，不依赖下一条 Host 通知。
+  useEffect(() => { replaySelectedEvents.current?.(); });
 
   useEffect(() => {
     if (!pendingRefresh) return;
@@ -229,4 +292,6 @@ export function useDesktopEventBridge({
     }
     setPendingRefresh(undefined);
   }, [pendingRefresh, setDocument, setWriterConflict]);
+
+  return invalidateProjectRefresh;
 }

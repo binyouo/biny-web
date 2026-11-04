@@ -13,7 +13,7 @@ import type { ToolModelSelectionState } from "../llm/toolModelRequest.js";
 import type { ToolModelCandidate } from "../llm/toolModel.js";
 import type { ManagedProcessService } from "../runtime/ManagedProcessService.js";
 /** Explicit host-owned read contracts, never inferred from extension metadata. */
-export type HostReadQuery = "TaskStatus" | "PlanStatus" | "skill_lookup" | "BashOutput" | "read_skill_resource";
+export type HostReadQuery = "TaskStatus" | "PlanStatus" | "ProcessStatus" | "read_skill_resource";
 /** Shared by discovery and execution. Serialized/tool-supplied hints grant no authority. */
 export declare function isCodeModeReadTool(entry: RegisteredTool): boolean;
 export declare function isCodeModeTool(entry: RegisteredTool): boolean;
@@ -46,4 +46,4 @@ export declare class ToolRegistry {
     listCatalogDefinitions(): ToolCatalogDefinition[];
     listEntries(): RegisteredTool[];
 }
-export declare function createToolRegistry(context: ToolContext, webSearchConfig?: WebSearchConfig, managedProcessService?: ManagedProcessService, webFetchConfig?: WebFetchConfig, sandboxConfig?: SandboxConfig, webCookiesConfig?: WebCookiesConfig, getToolSearchModels?: () => readonly ToolModelCandidate[], browser?: BrowserAutomationEndpoint, getToolModelSelectionState?: () => ToolModelSelectionState): ToolRegistry;
+export declare function createToolRegistry(context: ToolContext, webSearchConfig?: WebSearchConfig, managedProcessService?: ManagedProcessService, webFetchConfig?: WebFetchConfig, sandboxConfig?: SandboxConfig, webCookiesConfig?: WebCookiesConfig, getToolSearchModels?: () => readonly ToolModelCandidate[], browser?: BrowserAutomationEndpoint, getToolModelSelectionState?: () => ToolModelSelectionState, executionScope?: import("./shell/runCommand.js").RunCommandToolOptions["executionScope"], rtkEnabled?: () => boolean | Promise<boolean>): ToolRegistry;

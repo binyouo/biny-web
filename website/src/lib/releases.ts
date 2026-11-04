@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { SITE } from "./site.ts";
-import releaseSnapshot from "./release-snapshot.json" with { type: "json" };
 
 export type Arch = "arm64" | "x64" | "universal";
 export type Platform = "macos" | "windows" | "linux";
@@ -85,7 +84,7 @@ export function parseRelease(value: unknown): ReleaseInfo {
 
 export type ReleaseState =
   | { status: "loading" }
-  | { status: "ready"; release: ReleaseInfo; cached?: boolean }
+  | { status: "ready"; release: ReleaseInfo }
   | { status: "unpublished" }
   | { status: "error" };
 
@@ -114,12 +113,7 @@ export function useLatestRelease(): ReleaseState & { retry: () => void } {
       })
       .catch((error: unknown) => {
         if (!active) return;
-        if (error instanceof NotPublished) setState({ status: "unpublished" });
-        else {
-          // An API rate limit must not hide installers already published on GitHub.
-          const release = parseRelease(releaseSnapshot);
-          setState(release.assets.length ? { status: "ready", release, cached: true } : { status: "error" });
-        }
+        setState({ status: error instanceof NotPublished ? "unpublished" : "error" });
       })
       .finally(() => window.clearTimeout(timer));
     return () => {

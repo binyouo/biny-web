@@ -5,25 +5,22 @@
  * 和未归类对话三段树。项目与会话的业务操作通过回调返回上层，避免把 IPC 和持久化状态
  * 复制到视觉组件中。
  */
-import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { createPortal } from "react-dom";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SidebarLayoutSnapshot } from "../../../sidebarLayout.js";
 import { clampSidebarWidth, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from "../../../sidebarSizing.js";
 import type { DesktopSessionDeleteResult, DesktopProject, DesktopSessionMenuAction, DesktopSessionSummary } from "../../../protocol.js";
+import type { SessionRootPageState } from "../app/useSessionRootPages.js";
 import type { LoadedSessionTreePage } from "../app/sessionTreePageLifetime.js";
 import type { SidebarPeekHandlers, SidebarResizeHandlers } from "../app/useSidebarLayout.js";
 import { useClosingPresence } from "../useClosingPresence.js";
 import { useFluidHover, useRegisterFluidHoverItem, type UseFluidHoverReturn } from "../useFluidHover.js";
+import { CopyButton } from "./CopyButton.js";
 import { Collapse } from "./Collapse.js";
-import { CrystalDock } from "./CrystalDock.js";
 import { FluidHoverHighlight } from "./FluidHoverHighlight.js";
 import { Icon, type IconName } from "./Icon.js";
-import { ThreadBriefSessionMenu, ThreadBriefSessionState } from "../threadBrief/ThreadBriefSessionState.js";
 import { SessionDeleteButton } from "./SessionDeleteButton.js";
 import { WorkingIndicator } from "./WorkingIndicator.js";
-import { useAppearance } from "../appearanceContext.js";
-import { RetroFolderIcon } from "./WindowChrome.js";
 
 const PROJECT_SESSION_COLLAPSE_LIMIT = 5;
 const DIALOGUE_SESSION_COLLAPSE_LIMIT = 10;
@@ -62,6 +59,8 @@ interface SidebarProps {
   resizeHandlers: SidebarResizeHandlers;
   projects: DesktopProject[];
   sessions: DesktopSessionSummary[];
+  sessionRootPages?: ReadonlyMap<string, SessionRootPageState>;
+  onLoadProjectSessions?(projectId: string): Promise<LoadedSessionTreePage | undefined>;
   activeProjectId?: string;
   selectedSessionId?: string;
   onOpenProject(): void;
@@ -76,15 +75,13 @@ interface SidebarProps {
   onRevealProject(projectId: string): void;
   onOpenTerminalProject(projectId: string): void;
   onRenameProject(projectId: string): void;
-  onNewTask(projectId: string): void;
+  onNewTask(projectId: string, isolation?: "shared" | "worktree"): void;
   /** 顶层「新建任务」：会展示欢迎 hero，和文件夹内新建区分开。 */
   onNewTopLevelTask(): void;
   onImportSession(projectId: string): void;
   onRemoveProject(projectId: string): void;
   onSearch(): void;
-  onTimeClues(): void;
   onSettings?(): void;
-  onInsertCrystal(reference: string): void;
   onToggleSidebar(): void;
 }
 
@@ -96,6 +93,8 @@ export const Sidebar = memo(function Sidebar({
   resizeHandlers,
   projects,
   sessions: storedSessions,
+  sessionRootPages,
+  onLoadProjectSessions,
   activeProjectId,
   selectedSessionId,
   onOpenProject,
@@ -115,9 +114,7 @@ export const Sidebar = memo(function Sidebar({
   onImportSession,
   onRemoveProject,
   onSearch,
-  onTimeClues,
   onSettings,
-  onInsertCrystal,
   onToggleSidebar
 }: SidebarProps): React.JSX.Element {
   const [selection, setSelection] = useState<Set<string>>();
@@ -396,25 +393,26 @@ export const Sidebar = memo(function Sidebar({
   const showPinnedSection = Boolean(pinnedProjects.length || pinnedSessions.length);
 
   const loadSessionChildren = async (session: DesktopSessionSummary, cursor?: string): Promise<void> => {
-    if (!session.hasChildren || sessionPageRequests.current.has(session.id)) return;
+    const key = sessionKey(session);
+    if (!session.hasChildren || sessionPageRequests.current.has(key)) return;
     const request = {};
-    sessionPageRequests.current.set(session.id, request);
-    setLoadingSessionIds((current) => new Set(current).add(session.id));
+    sessionPageRequests.current.set(key, request);
+    setLoadingSessionIds((current) => new Set(current).add(key));
     try {
       const page = await onLoadSessionChildren(session.projectId, session.id, cursor);
-      if (sessionPageRequests.current.get(session.id) !== request) return;
-      const resetIds = new Set(page.resetSessionIds);
+      if (sessionPageRequests.current.get(key) !== request) return;
+      const resetIds = new Set(page.resetSessionIds?.map(id => `${session.projectId}\0${id}`));
       if (page.resetSessionIds) {
         for (const id of resetIds) sessionPageRequests.current.delete(id);
         setExpandedSessionIds((current) => new Set([...current].filter((id) => !resetIds.has(id))));
         setLoadingSessionIds((current) => new Set([...current].filter((id) => !resetIds.has(id))));
       }
-      setLoadedSessionParents((current) => new Set([...current].filter((id) => !resetIds.has(id))).add(session.id));
+      setLoadedSessionParents((current) => new Set([...current].filter((id) => !resetIds.has(id))).add(key));
       setSessionNextCursors((current) => {
         const next = new Map(current);
         for (const id of resetIds) next.delete(id);
-        if (page.nextCursor) next.set(session.id, page.nextCursor);
-        else next.delete(session.id);
+        if (page.nextCursor) next.set(key, page.nextCursor);
+        else next.delete(key);
         return next;
       });
     } catch {
@@ -422,11 +420,11 @@ export const Sidebar = memo(function Sidebar({
       // 不写入 loadedSessionParents，用户重新展开时自然会重试。
     } finally {
       // A subtree reset may already have allowed a newer request for this same ID.
-      if (sessionPageRequests.current.get(session.id) === request) {
-        sessionPageRequests.current.delete(session.id);
+      if (sessionPageRequests.current.get(key) === request) {
+        sessionPageRequests.current.delete(key);
         setLoadingSessionIds((current) => {
           const next = new Set(current);
-          next.delete(session.id);
+          next.delete(key);
           return next;
         });
       }
@@ -435,18 +433,30 @@ export const Sidebar = memo(function Sidebar({
 
   const toggleSession = (session: DesktopSessionSummary): void => {
     if (!session.hasChildren) return;
+    const key = sessionKey(session);
     setExpandedSessionIds((current) => {
       const next = new Set(current);
-      if (next.has(session.id)) next.delete(session.id);
-      else next.add(session.id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
-    if (!expandedSessionIds.has(session.id) && !loadedSessionParents.has(session.id)) void loadSessionChildren(session);
+    if (!expandedSessionIds.has(key) && !loadedSessionParents.has(key)) void loadSessionChildren(session);
   };
 
   const loadMoreSessionChildren = (session: DesktopSessionSummary): void => {
-    const cursor = sessionNextCursors.get(session.id);
+    const cursor = sessionNextCursors.get(sessionKey(session));
     if (cursor) void loadSessionChildren(session, cursor);
+  };
+
+  const loadProjectSessions = async (projectId: string): Promise<void> => {
+    const page = await onLoadProjectSessions?.(projectId);
+    if (!mounted.current || !page?.resetSessionIds) return;
+    const resetIds = new Set(page.resetSessionIds.map(id => `${projectId}\0${id}`));
+    for (const id of resetIds) sessionPageRequests.current.delete(id);
+    setExpandedSessionIds(current => new Set([...current].filter(id => !resetIds.has(id))));
+    setLoadedSessionParents(current => new Set([...current].filter(id => !resetIds.has(id))));
+    setLoadingSessionIds(current => new Set([...current].filter(id => !resetIds.has(id))));
+    setSessionNextCursors(current => new Map([...current].filter(([id]) => !resetIds.has(id))));
   };
 
   const renderProject = (project: DesktopProject, section: "pinned" | "projects"): React.JSX.Element => {
@@ -479,6 +489,7 @@ export const Sidebar = memo(function Sidebar({
             setProjectMenuOpen((current) => current === `${section}:${project.id}` ? undefined : `${section}:${project.id}`);
           }}
           onNewTask={() => { setProjectMenuOpen(undefined); onNewTask(project.id); }}
+          onNewIsolatedTask={() => { setProjectMenuOpen(undefined); onNewTask(project.id, "worktree"); }}
           onImportSession={() => { setProjectMenuOpen(undefined); onImportSession(project.id); }}
           onOpenTerminal={() => { setProjectMenuOpen(undefined); onOpenTerminalProject(project.id); }}
           onPin={() => { setProjectMenuOpen(undefined); onProjectPinned(project.id, !project.pinned); }}
@@ -501,6 +512,11 @@ export const Sidebar = memo(function Sidebar({
             projectId={project.id}
             selectedSessionId={selectedSessionId}
             sessions={projectSessions}
+            rootPage={sessionRootPages?.get(project.id)}
+            canLoadRoots={Boolean(onLoadProjectSessions) && !project.missing && (sessionRootPages?.has(project.id)
+              ? !sessionRootPages.get(project.id)!.initialized || Boolean(sessionRootPages.get(project.id)!.nextCursor)
+              : projectSessions.length >= 32)}
+            onLoadRoots={() => { void loadProjectSessions(project.id); }}
             expandedSessionIds={expandedSessionIds}
             loadingSessionIds={loadingSessionIds}
             sessionNextCursors={sessionNextCursors}
@@ -636,16 +652,10 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       <div className="biny-sidebar-footer">
-        <button aria-label="设置" className="biny-sidebar-settings-item" disabled={!onSettings} onClick={onSettings} title="设置" type="button">
+        <button aria-label="设置" className="biny-sidebar-settings-item" disabled={!onSettings} onClick={() => onSettings?.()} title="设置" type="button">
           <Icon name="settings" size={16} />
           <span>设置</span>
         </button>
-        <Tooltip content="时间线索" delay={150} placement="above">
-          <button aria-label="时间线索" aria-haspopup="dialog" className="biny-chrome-button biny-sidebar-time-clues-button" onClick={onTimeClues} type="button">
-            <Icon name="calendar" size={16} />
-          </button>
-        </Tooltip>
-        <CrystalDock sessionId={selectedSessionId} onInsert={onInsertCrystal} />
       </div>
       </div>
       {resizable ? <SidebarResizer width={layout.contentWidth} {...resizeHandlers} /> : null}
@@ -656,7 +666,6 @@ export const Sidebar = memo(function Sidebar({
           setSessionMenuVisible(false);
         }}
         menu={sessionMenu}
-        onClose={() => setSessionMenuVisible(false)}
         onAction={(action) => {
           setSessionMenuVisible(false);
           if (!sessionMenu) return;
@@ -785,12 +794,15 @@ function SidebarSection({ label, icon, expanded, actions, onToggle, children }: 
   );
 }
 
-function ProjectSessions({ actions, projectId, sessions, selectedSessionId, onSelectSession, onSessionContextMenu, flat = false, limit = PROJECT_SESSION_COLLAPSE_LIMIT, expandedSessionIds, loadingSessionIds, sessionNextCursors, onToggleSession, onLoadMoreSessionChildren }: { actions: SessionRowActions; projectId: string; sessions: DesktopSessionSummary[]; selectedSessionId?: string; onSelectSession(projectId: string, sessionId: string): void; onSessionContextMenu(session: DesktopSessionSummary, point: { x: number; y: number }): void; flat?: boolean; limit?: number; expandedSessionIds: Set<string>; loadingSessionIds: Set<string>; sessionNextCursors: Map<string, string>; onToggleSession(session: DesktopSessionSummary): void; onLoadMoreSessionChildren(session: DesktopSessionSummary): void }): React.JSX.Element | null {
-  if (!sessions.length) return <div className="biny-sidebar-empty-row biny-sidebar-project-empty">没有聊天</div>;
+function ProjectSessions({ actions, projectId, sessions, selectedSessionId, onSelectSession, onSessionContextMenu, flat = false, limit = PROJECT_SESSION_COLLAPSE_LIMIT, expandedSessionIds, loadingSessionIds, sessionNextCursors, onToggleSession, onLoadMoreSessionChildren, rootPage, canLoadRoots, onLoadRoots }: { rootPage?: SessionRootPageState; canLoadRoots?: boolean; onLoadRoots?(): void; actions: SessionRowActions; projectId: string; sessions: DesktopSessionSummary[]; selectedSessionId?: string; onSelectSession(projectId: string, sessionId: string): void; onSessionContextMenu(session: DesktopSessionSummary, point: { x: number; y: number }): void; flat?: boolean; limit?: number; expandedSessionIds: Set<string>; loadingSessionIds: Set<string>; sessionNextCursors: Map<string, string>; onToggleSession(session: DesktopSessionSummary): void; onLoadMoreSessionChildren(session: DesktopSessionSummary): void }): React.JSX.Element | null {
+  if (!sessions.length && !canLoadRoots) return <div className="biny-sidebar-empty-row biny-sidebar-project-empty">没有聊天</div>;
   return (
     <CollapsibleSessionList
       actions={actions}
       limit={limit}
+      rootPage={rootPage}
+      canLoadRoots={canLoadRoots}
+      onLoadRoots={onLoadRoots}
       flat={flat}
       onSelectSession={onSelectSession}
       onSessionContextMenu={onSessionContextMenu}
@@ -821,7 +833,7 @@ interface SessionListProps {
   onLoadMoreSessionChildren(session: DesktopSessionSummary): void;
 }
 
-function CollapsibleSessionList({ limit, ...props }: SessionListProps & { limit: number }): React.JSX.Element {
+function CollapsibleSessionList({ limit, rootPage, canLoadRoots, onLoadRoots, ...props }: SessionListProps & { limit: number; rootPage?: SessionRootPageState; canLoadRoots?: boolean; onLoadRoots?(): void }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const shouldCollapse = props.sessions.length > limit;
   useEffect(() => {
@@ -831,8 +843,14 @@ function CollapsibleSessionList({ limit, ...props }: SessionListProps & { limit:
   return (
     <>
       <SessionList {...props} sessions={visibleSessions} />
+      {(expanded || !shouldCollapse) && canLoadRoots ? <>
+        {rootPage?.error ? <div className="biny-sidebar-empty-row" role="alert">{rootPage.error}</div> : null}
+        <button aria-busy={rootPage?.loading} className="biny-sidebar-session-expand" disabled={rootPage?.loading} onClick={onLoadRoots} type="button">
+          加载更早会话
+        </button>
+      </> : null}
       {shouldCollapse ? (
-        <button className="biny-sidebar-session-expand" onClick={() => setExpanded((current) => !current)} type="button">
+        <button aria-expanded={expanded} className="biny-sidebar-session-expand" onClick={() => setExpanded((current) => !current)} type="button">
           {expanded ? "收起" : "显示更多"}
         </button>
       ) : null}
@@ -841,14 +859,6 @@ function CollapsibleSessionList({ limit, ...props }: SessionListProps & { limit:
 }
 
 function SessionList({ actions, flat = false, projectId, sessions, selectedSessionId, onSelectSession, onSessionContextMenu, expandedSessionIds, loadingSessionIds, sessionNextCursors, onToggleSession, onLoadMoreSessionChildren }: SessionListProps): React.JSX.Element {
-  const byParent = new Map<string | undefined, DesktopSessionSummary[]>();
-  const ids = new Set(sessions.map((session) => session.id));
-  for (const session of sessions) {
-    const parent = !flat && session.parentSessionId && ids.has(session.parentSessionId) ? session.parentSessionId : undefined;
-    const siblings = byParent.get(parent) ?? [];
-    siblings.push(session);
-    byParent.set(parent, siblings);
-  }
   // Fluid Functionalism 悬停：列表容器是指针作用域和定位上下文，行背景由
   // FluidHoverHighlight 统一绘制；注册索引即可见行的渲染顺序。
   // 收起的子会话树仍保持挂载（保住高度退场动画），inert 行对命中测试隐藏。
@@ -856,51 +866,62 @@ function SessionList({ actions, flat = false, projectId, sessions, selectedSessi
   const hover = useFluidHover(listRef, {
     isItemDisabled: (element) => element.closest("[inert]") !== null
   });
-  // 子会话仍通过折叠容器表达从属关系，但标题列保持统一，避免同一列表中
-  // 仅因父子关系让可用宽度忽长忽短。
-  let rowIndex = 0;
-  const renderNode = (session: DesktopSessionSummary, ancestors: Set<string>): React.JSX.Element[] => {
-    if (ancestors.has(session.id)) return [];
-    const nextAncestors = new Set(ancestors).add(session.id);
-    const expandable = !flat && Boolean(session.hasChildren);
-    const expanded = expandable && expandedSessionIds.has(session.id);
-    const loading = expandable && loadingSessionIds.has(session.id);
-    // 子树常驻挂在 Collapse 里，收起是收放高度而不是卸载；未懒加载过的父节点
-    // 没有子行，首次展开时 Collapse 已在（open 从一开始就过渡），内容随数据到位撑开。
-    const children = (byParent.get(session.id) ?? []).flatMap((child) => renderNode(child, nextAncestors));
-    const nextCursor = sessionNextCursors.get(session.id);
-    return [
-      <SessionTreeRow
-        actions={actions}
-        expandable={expandable}
-        expanded={expanded}
-        index={rowIndex++}
-        key={`${session.projectId}:${session.id}`}
-        loading={loading}
-        onContextMenu={onSessionContextMenu}
-        onSelect={onSelectSession}
-        onToggle={onToggleSession}
-        projectId={projectId}
-        registerItem={hover.registerItem}
-        selected={session.id === selectedSessionId}
-        session={session}
-      />,
-      ...(expandable ? [
-        <Collapse className="biny-sidebar-session-children" key={`${session.projectId}:${session.id}:tree`} open={expanded}>
-          {children}
-          {nextCursor ? (
-            <button className="biny-sidebar-session-expand" onClick={() => onLoadMoreSessionChildren(session)} type="button">
-              显示更多
-            </button>
-          ) : null}
-        </Collapse>
-      ] : [])
-    ];
-  };
+  const rows = useMemo(() => {
+    const byParent = new Map<string | undefined, DesktopSessionSummary[]>();
+    const ids = new Set(sessions.map((session) => session.id));
+    for (const session of sessions) {
+      const parent = !flat && session.parentSessionId && ids.has(session.parentSessionId) ? session.parentSessionId : undefined;
+      const siblings = byParent.get(parent) ?? [];
+      siblings.push(session);
+      byParent.set(parent, siblings);
+    }
+    // 子会话仍通过折叠容器表达从属关系，但标题列保持统一，避免同一列表中
+    // 仅因父子关系让可用宽度忽长忽短。
+    let rowIndex = 0;
+    const renderNode = (session: DesktopSessionSummary, ancestors: Set<string>): React.JSX.Element[] => {
+      if (ancestors.has(session.id)) return [];
+      const nextAncestors = new Set(ancestors).add(session.id);
+      const expandable = !flat && Boolean(session.hasChildren);
+      const expanded = expandable && expandedSessionIds.has(sessionKey(session));
+      const loading = expandable && loadingSessionIds.has(sessionKey(session));
+      // 子树常驻挂在 Collapse 里，收起是收放高度而不是卸载；未懒加载过的父节点
+      // 没有子行，首次展开时 Collapse 已在（open 从一开始就过渡），内容随数据到位撑开。
+      const children = (byParent.get(session.id) ?? []).flatMap((child) => renderNode(child, nextAncestors));
+      const nextCursor = sessionNextCursors.get(sessionKey(session));
+      return [
+        <SessionTreeRow
+          actions={actions}
+          expandable={expandable}
+          expanded={expanded}
+          index={rowIndex++}
+          key={`${session.projectId}:${session.id}`}
+          loading={loading}
+          onContextMenu={onSessionContextMenu}
+          onSelect={onSelectSession}
+          onToggle={onToggleSession}
+          projectId={projectId}
+          registerItem={hover.registerItem}
+          selected={session.id === selectedSessionId}
+          session={session}
+        />,
+        ...(expandable ? [
+          <Collapse className="biny-sidebar-session-children" key={`${session.projectId}:${session.id}:tree`} open={expanded}>
+            {children}
+            {nextCursor ? (
+              <button className="biny-sidebar-session-expand" onClick={() => onLoadMoreSessionChildren(session)} type="button">
+                显示更多
+              </button>
+            ) : null}
+          </Collapse>
+        ] : [])
+      ];
+    };
+    return (byParent.get(undefined) ?? []).flatMap((session) => renderNode(session, new Set()));
+  }, [actions, flat, projectId, sessions, selectedSessionId, onSelectSession, onSessionContextMenu, expandedSessionIds, loadingSessionIds, sessionNextCursors, onToggleSession, onLoadMoreSessionChildren, hover.registerItem]);
   return (
     <div ref={listRef} className={`biny-sidebar-session-list${projectId ? " is-indented" : ""}`} {...hover.handlers}>
       <FluidHoverHighlight hover={hover} className="has-row-radius" />
-      {(byParent.get(undefined) ?? []).flatMap((session) => renderNode(session, new Set()))}
+      {rows}
     </div>
   );
 }
@@ -977,7 +998,6 @@ function SessionTreeRow({
           <span className="biny-sidebar-session-line">
             {session.pinned ? <span aria-hidden="true" className="biny-sidebar-session-pin"><Icon name="pin" size={12} /></span> : session.unread ? <span aria-label="未读" className="biny-sidebar-session-unread" /> : null}
             <span className="biny-sidebar-session-title">{title}</span>
-            <ThreadBriefSessionState sessionId={session.id} />
             {running ? <WorkingIndicator waiting={session.status === "waiting_permission"} /> : meta && metaTitle ? <span aria-label={`上次活动：${metaTitle}`} className="biny-sidebar-session-meta" title={metaTitle}>{meta}</span> : null}
           </span>
         </button>
@@ -996,6 +1016,7 @@ const ProjectRow = memo(function ProjectRow({
   onSelect,
   onMenu,
   onNewTask,
+  onNewIsolatedTask,
   onImportSession,
   onPin,
   onRefresh,
@@ -1015,6 +1036,7 @@ const ProjectRow = memo(function ProjectRow({
   onSelect(projectId: string): void;
   onMenu(): void;
   onNewTask(): void;
+  onNewIsolatedTask(): void;
   onImportSession(): void;
   onPin(): void;
   onRefresh(): void;
@@ -1027,7 +1049,6 @@ const ProjectRow = memo(function ProjectRow({
   onDragCancel(): void;
 }): React.JSX.Element {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const appearance = useAppearance();
   const suppressClickRef = useRef(false);
   return (
     <div
@@ -1064,22 +1085,24 @@ const ProjectRow = memo(function ProjectRow({
         role="button"
         tabIndex={0}
       >
-        {appearance.skin !== "default" ? <RetroFolderIcon /> : <Icon name={sessionsExpanded ? "folder-open" : "folder"} size={16} />}
+        {project.iconDataUrl ? <img alt="" className="biny-project-row-icon" src={project.iconDataUrl} />
+          : <Icon name={sessionsExpanded ? "folder-open" : "folder"} size={16} />}
         <span className="biny-project-row-label">{project.name}</span>
         {project.missing ? <span className="biny-project-status is-failed" title="路径不可用" /> : null}
       </div>
       <div className={`biny-project-row-actions${menuOpen ? " is-open" : ""} biny-sidebar-menu-anchor`}>
         <button aria-label={`新建任务 ${project.name}`} className="biny-project-row-action" onClick={onNewTask} title="新建任务" type="button"><Icon name="compose" size={14} /></button>
         <button ref={menuButtonRef} aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${project.name} 项目操作`} className="biny-project-row-action" onClick={onMenu} title="项目操作" type="button"><Icon name="more" size={14} /></button>
-        <ProjectMenu anchorRef={menuButtonRef} onImportSession={onImportSession} onOpenTerminal={onOpenTerminal} onPin={onPin} onRefresh={onRefresh} onRemove={onRemove} onRename={onRename} onReveal={onReveal} open={menuOpen} project={project} />
+        <ProjectMenu anchorRef={menuButtonRef} onNewIsolatedTask={onNewIsolatedTask} onImportSession={onImportSession} onOpenTerminal={onOpenTerminal} onPin={onPin} onRefresh={onRefresh} onRemove={onRemove} onRename={onRename} onReveal={onReveal} open={menuOpen} project={project} />
       </div>
     </div>
   );
 });
 
-function ProjectMenu({ anchorRef, project, open, onPin, onRefresh, onReveal, onOpenTerminal, onRename, onRemove, onImportSession }: { anchorRef: FloatingMenuAnchor; project: DesktopProject; open: boolean; onPin(): void; onRefresh(): void; onReveal(): void; onOpenTerminal(): void; onRename(): void; onRemove(): void; onImportSession(): void }): React.JSX.Element {
+function ProjectMenu({ anchorRef, project, open, onNewIsolatedTask, onPin, onRefresh, onReveal, onOpenTerminal, onRename, onRemove, onImportSession }: { anchorRef: FloatingMenuAnchor; project: DesktopProject; open: boolean; onNewIsolatedTask(): void; onPin(): void; onRefresh(): void; onReveal(): void; onOpenTerminal(): void; onRename(): void; onRemove(): void; onImportSession(): void }): React.JSX.Element {
   return (
     <FloatingSidebarMenu anchorRef={anchorRef} ariaLabel="项目操作菜单" open={open}>
+      <button disabled={project.missing} onClick={onNewIsolatedTask} role="menuitem" title="在独立 Git 工作树中修改文件" type="button"><Icon name="compose" size={15} /><span>新建隔离任务</span></button>
       <button onClick={onPin} role="menuitem" type="button"><Icon name="pin" size={15} /><span>{project.pinned ? "取消置顶项目" : "置顶项目"}</span></button>
       <button onClick={onImportSession} role="menuitem" type="button"><Icon name="download" size={15} /><span>导入会话…</span></button>
       <button onClick={onRefresh} role="menuitem" type="button"><Icon name="refresh" size={15} /><span>刷新项目状态</span></button>
@@ -1093,20 +1116,15 @@ function ProjectMenu({ anchorRef, project, open, onPin, onRefresh, onReveal, onO
 }
 
 /** 会话右键菜单：替代原先由主进程弹出的原生菜单，样式与侧栏其余菜单保持一致。 */
-function SessionContextMenu({ menu, onAction, onClose, onSelectMode, open }: { onSelectMode(): void; menu?: { session: DesktopSessionSummary; point: { x: number; y: number } }; onAction(action: DesktopSessionMenuAction): void; onClose(): void; open: boolean }): React.JSX.Element | null {
+function SessionContextMenu({ menu, onAction, onSelectMode, open }: { onSelectMode(): void; menu?: { session: DesktopSessionSummary; point: { x: number; y: number } }; onAction(action: DesktopSessionMenuAction): void; open: boolean }): React.JSX.Element | null {
   if (!menu) return null;
   const { session } = menu;
   return (
-    <FloatingSidebarMenu ariaLabel="会话操作菜单" open={open} point={menu.point}>
-      <ThreadBriefSessionMenu sessionId={session.id} onClose={onClose} />
+    <FloatingSidebarMenu ariaLabel="会话操作菜单" className="is-session" open={open} point={menu.point}>
       <button onClick={() => onAction("rename")} role="menuitem" type="button"><Icon name="edit" size={15} /><span>重命名</span></button>
+      <CopyButton key={`${session.id}:${open}`} value={session.id} label="复制会话 ID" role="menuitem" className="" size={15} showLabel />
       <button onClick={() => onAction(session.pinned ? "unpin" : "pin")} role="menuitem" type="button"><Icon name="pin" size={15} /><span>{session.pinned ? "取消置顶" : "置顶"}</span></button>
       <button onClick={() => onAction(session.archived ? "unarchive" : "archive")} role="menuitem" type="button"><Icon name="archive" size={15} /><span>{session.archived ? "取消归档" : "归档"}</span></button>
-      <button onClick={() => onAction("duplicate")} role="menuitem" title="保留当前历史，创建可独立继续的子会话" type="button"><Icon name="copy" size={15} /><span>创建会话分支</span></button>
-      <div className="biny-sidebar-menu-separator" />
-      <button onClick={() => onAction("export-bundle")} role="menuitem" type="button"><Icon name="download" size={15} /><span>导出会话包…</span></button>
-      <button onClick={() => onAction("export-claude")} role="menuitem" type="button"><Icon name="download" size={15} /><span>导出为 Claude Code…</span></button>
-      <div className="biny-sidebar-menu-separator" />
       <button onClick={onSelectMode} role="menuitem" type="button"><Icon name="check" size={15} /><span>多选</span></button>
       <button className="is-danger" onClick={() => onAction("delete")} role="menuitem" type="button"><Icon name="trash" size={15} /><span>删除</span></button>
     </FloatingSidebarMenu>

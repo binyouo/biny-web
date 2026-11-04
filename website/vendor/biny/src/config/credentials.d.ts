@@ -54,7 +54,6 @@ export declare function createCredentialStore(platform?: NodeJS.Platform): Crede
 export declare function providerCredentialAccount(providerAlias: string, kind: ProviderCredentialKind): string;
 export declare function applyStoredCredentials(config: AgentConfig, store: CredentialStore): Promise<AgentConfig>;
 export declare function loadStoredCredentials(config: AgentConfig, store: CredentialStore): Promise<AgentConfig>;
-export declare function saveStoredCredentials(config: AgentConfig, store: CredentialStore, previous?: AgentConfig): Promise<void>;
 /**
  * Keychain 与 config.json 的补偿事务。
  *
@@ -71,13 +70,6 @@ export declare function saveConfigAndStoredCredentials(config: AgentConfig, prev
  * config.json 原子保存，足以让旧快照在 saveVersioned 的 CAS 预检阶段失败。
  */
 export declare function synchronizeCredentialRevisions(config: AgentConfig, previous: AgentConfig): void;
-/**
- * 检查当前是否存在待恢复/待清理的凭据事务。
- *
- * 这只是瞬时状态，不能证明后续读取安全：writer 可在检查之后创建并清理整个 journal。
- * 配置文档读取、事务恢复和凭据水合仍须在同一个全局配置锁内完成。
- */
-export declare function hasPendingCredentialTransaction(journalPath: string): Promise<boolean>;
 /** load 边界先恢复未完成的凭据事务；无法证明方向时 fail closed，不返回混合状态。 */
 export declare function recoverStoredCredentialTransaction(store: CredentialStore, journalPath: string, loadConfigDocument: () => Promise<AgentConfig>): Promise<void>;
 /** 复读并校准延迟事务，但保留临时 Keychain account 供外层最终提交或补偿。 */

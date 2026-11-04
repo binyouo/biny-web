@@ -1,5 +1,5 @@
 import type { Tool, ToolContext } from "../types.js";
-import type { FileChangeResult } from "./fileChange.js";
+import { type FileChangeResult } from "./fileChange.js";
 import { readUtf8FileForEdit } from "./safeFileIo.js";
 export interface WriteFileArgs {
     path: string;

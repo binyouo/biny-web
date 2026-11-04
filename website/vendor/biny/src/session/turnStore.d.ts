@@ -37,7 +37,7 @@ export declare class TurnStore {
     private readonly persistenceRoot;
     private readonly sessionId;
     constructor(persistenceRoot: string, sessionId: string);
-    save(prompt: string, systemPrompt: string | undefined, messages: readonly AgentMessage[], completedSteps: number, facts?: unknown, terminal?: InterruptedTurnTerminal, previousTerminals?: readonly InterruptedTurnTerminal[], runtimeHighWater?: RuntimeHighWater,
+    save(prompt: string, systemPrompt: string | undefined, messages: readonly AgentMessage[], completedSteps: number, facts?: unknown, terminal?: InterruptedTurnTerminal, previousTerminals?: readonly InterruptedTurnTerminal[], runtimeHighWater?: RuntimeHighWater, 
     /** The checkpoint owner can differ from the newest background event in the log. */
     turnId?: string | undefined, retryOrigin?: RetryOrigin, retryWindow?: RetryWindow, retryCommit?: RetryCommit): Promise<void>;
     load(): Promise<InterruptedTurn | undefined>;

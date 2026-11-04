@@ -2,23 +2,14 @@ import { z } from "zod";
 import { type DurableTaskRunStore, type TaskRunWithAttempts, type TaskRunStatus } from "./TaskRunStore.js";
 declare const messageSchema: z.ZodObject<{
     id: z.ZodString;
-    direction: z.ZodEnum<["parent", "worker"]>;
+    direction: z.ZodEnum<{
+        parent: "parent";
+        worker: "worker";
+    }>;
     content: z.ZodString;
     createdAt: z.ZodString;
     delivered: z.ZodOptional<z.ZodBoolean>;
-}, "strict", z.ZodTypeAny, {
-    id: string;
-    direction: "worker" | "parent";
-    content: string;
-    createdAt: string;
-    delivered?: boolean | undefined;
-}, {
-    id: string;
-    direction: "worker" | "parent";
-    content: string;
-    createdAt: string;
-    delivered?: boolean | undefined;
-}>;
+}, z.core.$strict>;
 export type TaskMessage = z.infer<typeof messageSchema>;
 export interface WorkerActivity {
     id: string;
@@ -100,14 +91,17 @@ export declare class TaskCommunication {
     private closed;
     constructor(tasks: DurableTaskRunStore, sessionId: string);
     read(taskRunId: string): TaskRunWithAttempts;
+    /** Validate a trusted execution owner without rebinding this channel or its workers. */
+    assertOwnership(taskRunId: string, sessionId?: string): void;
+    private readForSession;
     send(taskRunId: string, content: string, id?: string): TaskMessage;
-    messages(taskRunId: string): TaskMessage[];
-    notifications(maxCharacters?: number): TaskNotification[];
-    acknowledge(notice: TaskNotification): void;
+    messages(taskRunId: string, sessionId?: string): TaskMessage[];
+    notifications(maxCharacters?: number, receivingSessionId?: string): TaskNotification[];
+    acknowledge(notice: TaskNotification, receivingSessionId?: string): void;
     inspect(taskRunId: string, options?: TaskInspectionOptions, signal?: AbortSignal): Promise<TaskInspection>;
     worker(taskRunId: string, attemptId: string): WorkerCommunication;
     notify(taskRunId: string): void;
-    wait(taskRunId: string, waitMs?: number, afterRevision?: number, signal?: AbortSignal): Promise<TaskRunWithAttempts>;
+    wait(taskRunId: string, waitMs?: number, afterRevision?: number, signal?: AbortSignal, sessionId?: string): Promise<TaskRunWithAttempts>;
     private waitFor;
     close(): void;
     private append;

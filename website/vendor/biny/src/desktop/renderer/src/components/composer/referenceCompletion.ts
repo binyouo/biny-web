@@ -15,14 +15,14 @@ const kinds: Record<string, LocalReferenceKind> = {
   片段: "snippet", snippet: "snippet", 临时引用: "scratch", scratch: "scratch",
   技能: "skill", skill: "skill", 子代理: "agent", 智能体: "agent", agent: "agent", mcp: "mcp", 模型: "model", model: "model", 服务商: "provider", provider: "provider",
   工具: "tool", tool: "tool", 工具调用: "tool-call", "tool-call": "tool-call", call: "tool-call", 任务: "task", task: "task", 定时任务: "cron", cron: "cron",
-  结晶: "crystal", crystal: "crystal", 结晶包: "bundle", bundle: "bundle", 计划: "plan", plan: "plan"
+  计划: "plan", plan: "plan"
 };
 
 const kindLabels: Record<LocalReferenceKind, string> = {
   date: "日期", project: "项目", file: "文件", thread: "会话", message: "消息", memory: "记忆",
   snippet: "片段", scratch: "临时引用", skill: "技能", agent: "子代理", mcp: "MCP",
   model: "模型", provider: "服务商", tool: "工具", "tool-call": "工具调用", task: "任务", cron: "定时任务",
-  crystal: "结晶", bundle: "结晶包", plan: "计划"
+  plan: "计划"
 };
 
 export function referenceKindLabel(kind: LocalReferenceKind): string { return kindLabels[kind]; }
@@ -69,11 +69,16 @@ function validToken(value: string, token: DraftReferenceToken): boolean {
 
 function uniqueLabel(label: string, uri: string, tokens: readonly DraftReferenceToken[]): string {
   if (!tokens.some((token) => token.label === label && token.uri !== uri)) return label;
-  for (let suffix = 2; suffix < 100; suffix += 1) {
-    const candidate = `${label} ${String(suffix)}`;
-    if (!tokens.some((token) => token.label === candidate)) return candidate;
+  const usedLabels = new Set(tokens.map((token) => token.label));
+  // Distinct suffixes guarantee a free label within usedLabels.size + 1 attempts.
+  for (let suffix = 2; ; suffix += 1) {
+    const ending = ` ${String(suffix)}`;
+    let end = Math.min(label.length, 80 - ending.length);
+    // Keep the existing UTF-16 budget without splitting a complete surrogate pair.
+    if (end > 0 && /[\uD800-\uDBFF]/u.test(label[end - 1]!) && /[\uDC00-\uDFFF]/u.test(label[end] ?? "")) end -= 1;
+    const candidate = `${label.slice(0, end)}${ending}`;
+    if (!usedLabels.has(candidate)) return candidate;
   }
-  return `${label} ${uri.slice(-6)}`;
 }
 
 /** 草稿只保留短标签和独立身份；发送正文由 materializeDraftReferences 生成。 */

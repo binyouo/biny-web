@@ -7,13 +7,12 @@ import { reduceInteractiveRunState } from "../../vendor/biny/src/runtime/agentEv
 import type { SessionEvent } from "../../vendor/biny/src/session/recorder.ts";
 import { memoryPolicySchema } from "../../vendor/biny/src/personalization/index.ts";
 import { isFullYesConfirmation } from "../../vendor/biny/src/permission/confirmation.ts";
-import type { AppearanceSnapshot } from "../../vendor/biny/src/appearance/types.ts";
+import type { DesktopAppearanceSnapshot } from "../../vendor/biny/src/desktop/protocol.ts";
 import type { DemoScenario, DemoStep, DemoToolStep } from "./types.ts";
 import { zh } from "../i18n/zh.ts";
 
-export const demoAppearance: AppearanceSnapshot = {
-  themePreference: "dark", fontPreference: { family: "system", size: 15 },
-  appearancePreference: { darkTheme: "vscode_dark", lightTheme: null, win98Trail: true, customThemes: [] }
+export const demoAppearance: DesktopAppearanceSnapshot = {
+  themePreference: "dark", fontPreference: { family: "system", size: 15 }
 };
 const timestamp = "2026-10-12T08:00:00.000Z";
 const project = { id: "demo", path: "/Biny/Workspace", name: "Workspace", branch: "main", dirty: false, missing: false, pinned: false, addedAt: timestamp, lastOpenedAt: timestamp };
@@ -193,16 +192,25 @@ export function createDesktopDemo(options: Options = {}) {
       else { run.index = run.scenario.steps.length; run.queue.push({ type: "tool.failed", toolCallId: run.toolCallId!, tool: toolName(step), error: "用户拒绝执行" }, { type: "assistant.completed", content: step.permission!.deniedReply }); }
       run.permission = undefined; setStatus("playing"); advance();
     },
-    setPermissionMode: async (_id, mode) => { permissionMode = mode; return workspace(); },
+    setPermissionMode: async (_id, mode) => { permissionMode = mode; return { projectId: project.id, permissionMode: mode }; },
     switchModel: async (_id, alias, thinking) => { const next = models.find(item => item.alias === alias); if (!next) throw new Error("模型不在演示列表中。"); model = { ...next, defaultThinking: thinking }; return info(selectedId ?? "memory"); },
-    renameSession: async (_id, id, title) => { document(id).session.title = title; return workspace(); },
-    pinSession: async (_id, id, pinned) => { document(id).session.pinned = pinned; return workspace(); },
-    markSessionRead: async () => workspace(),
+    renameSession: async (_id, id, title) => {
+      const session = document(id).session; session.title = title;
+      return { projectId: project.id, sessionId: id, metadata: { updatedAt: timestamp, metadataRevision: session.metadataRevision ?? "0", title } };
+    },
+    pinSession: async (_id, id, pinned) => {
+      const session = document(id).session; session.pinned = pinned;
+      return { projectId: project.id, sessionId: id, metadata: { updatedAt: timestamp, metadataRevision: session.metadataRevision ?? "0", pinned } };
+    },
+    markSessionRead: async (_id, id) => {
+      const session = document(id).session;
+      return { projectId: project.id, sessionId: id, metadata: { updatedAt: timestamp, metadataRevision: session.metadataRevision ?? "0", unread: false } };
+    },
     saveChatPersonalization: async (_projectId, id, input, expectedRevision) => {
       const session = document(id).session;
       if (session.metadataRevision !== expectedRevision) throw new Error("聊天状态已更新，请重试。");
       session.personalization = input; session.metadataRevision = String(Number(expectedRevision) + 1);
-      return workspace();
+      return { projectId: project.id, sessionId: id, metadata: { updatedAt: timestamp, metadataRevision: session.metadataRevision ?? "0", personalization: input } };
     },
     resolveDroppedFile: () => { throw new Error("网页演示不读取本机文件，请在桌面端使用附件。"); },
     toolCatalog: async () => ["Read", "Write", "Bash", "Grep"].map(name => ({ name, description: name, source: "builtin" })),

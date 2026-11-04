@@ -19,4 +19,5 @@ export declare const DEFAULT_PROJECT_SKILL_PATHS: string[];
  * 省略 homeDir 时尊重环境配置；显式传入时与 defaultGlobalSkillRoots 一样保持隔离。
  */
 export declare function skillRootPrecedence(scope: SkillRootScope, configuredPath: string, homeDir?: string): number;
+export declare function isBinyGlobalSkillRoot(configuredPath: string, homeDir?: string): boolean;
 export declare function defaultGlobalSkillRoots(homeDir?: string): string[];

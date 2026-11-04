@@ -16,7 +16,7 @@ const referenceIcons: Record<LocalReferenceKind, IconName> = {
   date: "calendar", project: "folder", file: "file", thread: "message", message: "message", memory: "brain",
   snippet: "quote", scratch: "file-text", skill: "wand", agent: "person", mcp: "plug", model: "cpu",
   provider: "server", tool: "wrench", "tool-call": "wrench", task: "check", cron: "timer",
-  crystal: "cube", bundle: "cube", plan: "list-tree"
+  plan: "list-tree"
 };
 
 export function PromptInput({ value, onChange, onReferenceChange, onInspectReference, referenceTokens, onSubmit, onFiles, disabled, placeholder, skills, projectId, inputRef }: {
@@ -45,8 +45,9 @@ export function PromptInput({ value, onChange, onReferenceChange, onInspectRefer
   const [dismissed, setDismissed] = useState<string>();
   const [activeIndex, setActiveIndex] = useState(0);
   const [referenceIndex, setReferenceIndex] = useState(0);
-  const [referenceResults, setReferenceResults] = useState<LocalReferenceResult[]>([]);
-  const [referenceError, setReferenceError] = useState<string>();
+  const [referenceResponse, setReferenceResponse] = useState<{
+    key: string; results: LocalReferenceResult[]; error?: string;
+  }>();
   const [referenceDismissed, setReferenceDismissed] = useState<string>();
   const [compositionRevision, setCompositionRevision] = useState(0);
   const menuId = useId();
@@ -62,6 +63,12 @@ export function PromptInput({ value, onChange, onReferenceChange, onInspectRefer
   const referenceKind = referenceCompletion?.kind;
   const unknownReferencePrefix = referenceCompletion?.unknownPrefix;
   const referenceOpen = focused && !disabled && projectId !== undefined && referenceCompletion !== undefined && referenceKey !== referenceDismissed;
+  // 已展示的结果也属于发起它的补全，不能在新查询的防抖/请求期间被选中。
+  const referenceSearchKey = referenceOpen && referenceQuery !== undefined && projectId && !unknownReferencePrefix
+    ? JSON.stringify([projectId, referenceKey, referenceKind, compositionRevision]) : undefined;
+  const currentReferenceResponse = referenceResponse?.key === referenceSearchKey ? referenceResponse : undefined;
+  const referenceResults = currentReferenceResponse?.results ?? [];
+  const referenceError = unknownReferencePrefix ? `未知引用种类：${unknownReferencePrefix}` : currentReferenceResponse?.error;
   const completionKey = completion ? `${String(completion.start)}:${String(completion.end)}:${completion.query}` : undefined;
   const options = completion ? filterPromptCompletions(items, completion.query) : [];
   const open = focused && !disabled && completion !== undefined && completionKey !== dismissed;
@@ -70,17 +77,18 @@ export function PromptInput({ value, onChange, onReferenceChange, onInspectRefer
   useBreathingCaret(inputRef, surfaceRef, caretRef, trailRef, value, disabled);
 
   useEffect(() => {
-    if (!referenceOpen || referenceQuery === undefined || !projectId) { setReferenceResults([]); setReferenceError(undefined); return; }
-    if (unknownReferencePrefix) { setReferenceResults([]); setReferenceError(`未知引用种类：${unknownReferencePrefix}`); return; }
+    if (!referenceSearchKey || referenceQuery === undefined || !projectId) { setReferenceResponse(undefined); return; }
     let active = true;
     const timer = window.setTimeout(() => {
       void window.biny.referenceSearch(projectId, referenceQuery, referenceKind,
         Intl.DateTimeFormat().resolvedOptions().timeZone).then((results) => {
-        if (active) { setReferenceResults(results); setReferenceError(undefined); setReferenceIndex(0); }
-      }).catch((cause) => { if (active) { setReferenceResults([]); setReferenceError(cause instanceof Error ? cause.message : String(cause)); } });
+        if (active) { setReferenceResponse({ key: referenceSearchKey, results }); setReferenceIndex(0); }
+      }).catch((cause) => {
+        if (active) setReferenceResponse({ key: referenceSearchKey, results: [], error: cause instanceof Error ? cause.message : String(cause) });
+      });
     }, 120);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [referenceOpen, referenceKey, referenceQuery, referenceKind, unknownReferencePrefix, projectId, compositionRevision]);
+  }, [referenceSearchKey, referenceQuery, referenceKind, projectId]);
 
   useLayoutEffect(() => {
     const input = inputRef.current;
@@ -147,7 +155,10 @@ export function PromptInput({ value, onChange, onReferenceChange, onInspectRefer
       {decorations.map((token, index) => <React.Fragment key={`${token.type}-${String(token.start)}`}>
         {value.slice(decorations[index - 1]?.end ?? 0, token.start)}
         {token.type === "skill"
-          ? <span className="biny-prompt-skill-token" data-skill-name={token.name}>{value.slice(token.start, token.end)}</span>
+          ? <span className="biny-prompt-skill-token" data-skill-name={token.name}>
+            <span className="biny-prompt-skill-source">{value.slice(token.start, token.end)}</span>
+            <span className="biny-prompt-skill-label"><Icon name="wand" size={11} /><span className="biny-prompt-skill-label-name">{token.name}</span></span>
+          </span>
           : <span className="biny-prompt-reference-token" data-reference-kind={token.kind}>
             <span className="biny-prompt-reference-icon"><span>@</span><Icon name={referenceIcons[token.kind]} size={11} /></span>
             {value.slice(token.start + 1, token.end)}

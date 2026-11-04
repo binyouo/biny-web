@@ -6,6 +6,7 @@ export interface SettingsModelPickerOption {
   value: string;
   label: string;
   secondary?: string;
+  searchText?: string;
   trailing?: string;
   disabled?: boolean;
 }
@@ -40,7 +41,7 @@ export function modelPickerGroups(
   // 而不是模型上，所以要按 providerAlias 反查一次。
   const iconByAlias = new Map(connections.map((connection) => [connection.providerAlias, connection.icon]));
   for (const model of models) {
-    if (model.showInPicker === false) continue;
+    if (!model.available || model.showInPicker === false) continue;
     const presentation = modelProviderPresentation(model, iconByAlias.get(model.provider));
     const key = `${model.providerType}:${model.provider}:${model.baseUrl ?? ""}`;
     const group = groups.get(key) ?? {
@@ -52,8 +53,8 @@ export function modelPickerGroups(
     };
     group.options.push({
       value: model.alias,
-      label: model.displayName,
-      secondary: model.model !== model.displayName ? model.model : model.alias
+      label: model.model,
+      secondary: `${model.displayName} ${model.alias}`
     });
     groups.set(key, group);
   }

@@ -13,6 +13,7 @@ export declare class ModelRuntime {
     private readonly config;
     private readonly providers;
     private readonly models;
+    private readonly registeredCatalogs;
     constructor(config: AgentConfig, catalogs?: readonly [string, ModelCatalogEntry[]][], ai?: AiRegistry, modelsStore?: ModelsStore, fetcher?: typeof globalThis.fetch, credentials?: ProviderCredentialPersistence);
     listModels(): ModelChoice[];
     resolve(reference: string, options?: {
@@ -23,4 +24,5 @@ export declare class ModelRuntime {
     refreshModels(providerAlias: string, signal?: AbortSignal, force?: boolean): Promise<ModelCatalogEntry[]>;
     refreshActiveCredential(signal?: AbortSignal): Promise<ProviderConfig | undefined>;
     catalogsSnapshot(): Array<[string, ModelCatalogEntry[]]>;
+    private registerCatalog;
 }

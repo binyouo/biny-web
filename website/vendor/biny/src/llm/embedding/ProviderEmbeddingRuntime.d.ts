@@ -4,12 +4,13 @@
  * 只接受 ProviderDefinition 明确声明的 wire；鉴权、代理和重试继续沿用 provider 配置，
  * 不会把聊天模型名称当作 embedding 能力探针。
  */
-import type { ProviderDefinition } from "../../ai/types.js";
+import type { ProviderDefinition, ModelCatalogEntry } from "../../ai/types.js";
 import type { ProviderConfig } from "../../config/schema.js";
 import type { EmbeddingModelDescriptor, EmbeddingModelRuntime, EmbeddingRequest, EmbeddingResult } from "./types.js";
 export interface ProviderEmbeddingRuntimeOptions {
     fetcher?: typeof globalThis.fetch;
     env?: NodeJS.ProcessEnv;
+    catalog?: readonly ModelCatalogEntry[];
 }
 export declare class ProviderEmbeddingRuntime implements EmbeddingModelRuntime {
     readonly providerAlias: string;
@@ -26,4 +27,4 @@ export declare class ProviderEmbeddingRuntime implements EmbeddingModelRuntime {
     private embedOpenAi;
     private embedGoogle;
 }
-export declare function listProviderEmbeddingModels(providerAlias: string, config: ProviderConfig, definition: ProviderDefinition): EmbeddingModelDescriptor[];
+export declare function listProviderEmbeddingModels(providerAlias: string, config: ProviderConfig, definition: ProviderDefinition, catalog?: readonly ModelCatalogEntry[]): EmbeddingModelDescriptor[];

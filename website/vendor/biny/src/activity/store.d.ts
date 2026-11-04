@@ -1,5 +1,19 @@
 import type { ActivityAnalysisSnapshot, ActivityEventType, ActivitySnapshotStorageTier, ActivitySource, ActivityStorageTier } from "./types.js";
 import type { ActivityAnySummaryRecord, ActivitySummaryKind, ActivitySummaryRecord, ActivitySummarySource, ActivitySummaryStats, ActivityWeeklySummaryRecord, ActivityWeeklySummaryStats } from "./summary.js";
+export interface ActivitySummaryWriteSnapshot {
+    kind: ActivitySummaryKind;
+    dateKey: string;
+    /** Exact stored row, including report cache fields; undefined means the row did not exist. */
+    state: string | undefined;
+}
+export interface ActivityReportCache {
+    report: string;
+    reportGeneratedAt: number;
+    reportStats: NonNullable<ActivitySummaryStats["reportStats"]>;
+    reportState: NonNullable<ActivitySummaryStats["reportState"]> & {
+        generation: string;
+    };
+}
 export interface ActivityEventInput {
     sessionId: string;
     occurredAt: string;
@@ -162,12 +176,16 @@ export interface ActivityAnalysisCommit {
     message?: string;
     url?: string;
 }
+export type ActivityAnalysisPerson = string | {
+    handle: string;
+    name?: string;
+};
 /** entities 分组；顶层兼容字段仍保留，便于旧报告和语义索引继续工作。 */
 export interface ActivityAnalysisEntityDetails {
     prs: ActivityAnalysisReference[];
     issues: ActivityAnalysisReference[];
     commits: ActivityAnalysisCommit[];
-    people: string[];
+    people: ActivityAnalysisPerson[];
     identifiers: string[];
     repos: string[];
     versions: string[];
@@ -363,6 +381,16 @@ export declare class ActivityStore {
         createdAt: number;
         updatedAt: number;
     } | undefined;
+    /**
+     * 在短写事务内核对所有权并更新日报缓存，只合并日报自己的字段。
+     * expectedGeneration 缺失表示新骨架认领缓存，叙事必须持有原骨架的 generation。
+     * createSummary 仅在行不存在时同步调用，不能在事务中等待模型或其它异步工作。
+     */
+    writeDailyReportCache(dateKey: string, report: ActivityReportCache, createSummary: () => ActivitySummaryRecord, expectedGeneration: string | undefined): boolean;
+    /** Capture the persisted summary slot before reading sources or awaiting a model. */
+    readSummaryWriteSnapshot(kind: ActivitySummaryKind, dateKey: string): ActivitySummaryWriteSnapshot;
+    /** Compare and write under one lock; a changed persisted row wins over this older snapshot. */
+    commitSummaryIfCurrent(snapshot: ActivitySummaryWriteSnapshot, summary: ActivityAnySummaryRecord): boolean;
     upsertSummary(summary: ActivityAnySummaryRecord): void;
     /**
      * 提供给 summary.ts 的聚合源。
@@ -499,7 +527,7 @@ export declare class ActivityStore {
      * 按 hot/warm/cold 策略维护截图文件。降级和容量淘汰都限制单轮处理量，避免新图
      * 写入时被一轮大清理阻塞；超过 cold 保留期时删除 snapshot 行，让 OCR 按外键级联删除。
      */
-    rotateSnapshots(maxStorageMb: number, now?: Date, recompress?: ActivitySnapshotCompressor): Promise<void>;
+    rotateSnapshots(maxStorageMb: number, now?: Date, recompress?: ActivitySnapshotCompressor, signal?: AbortSignal): Promise<void>;
     private updateSnapshotTier;
     private updateSnapshotStorage;
     private deleteSnapshot;

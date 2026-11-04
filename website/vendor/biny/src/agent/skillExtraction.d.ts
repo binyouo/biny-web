@@ -1,6 +1,6 @@
 import type { AgentModel } from "./core/types.js";
 import type { SessionEvent } from "../session/recorder.js";
-export type SkillExtractionStage = "extracting" | "saving" | "done";
+export type SkillExtractionStage = "analyzing" | "extracting" | "saving" | "done" | "skipped" | "failed";
 export interface SkillExtractionNotice {
     stage: SkillExtractionStage;
     skillName?: string;
@@ -19,7 +19,10 @@ export interface SkillExtractionInput {
     installedSkills: ReadonlyArray<{
         name: string;
         description: string;
+        filePath?: string;
+        scope?: string;
     }>;
+    onAnalyzed?: (toolCallCount: number) => Promise<void>;
     model?: AgentModel;
     minToolCalls: number;
     /** 测试或嵌入宿主可注入隔离 home；正常运行时使用当前用户 home。 */

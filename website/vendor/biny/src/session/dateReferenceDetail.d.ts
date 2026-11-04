@@ -1,5 +1,5 @@
 import { type DateReferenceRange } from "./dateReference.js";
-import { type TemporalClueHit, type TemporalFactHit } from "./temporalMemory.js";
+import { type TemporalFactHit } from "./temporalMemory.js";
 export interface DateConversationHit {
     projectId: string;
     sessionId: string;
@@ -23,20 +23,17 @@ export interface DateRunHit {
 export interface DateReferenceDetail {
     range: DateReferenceRange;
     conversations: DateConversationHit[];
-    clues: TemporalClueHit[];
     facts: TemporalFactHit[];
     scheduled: DateScheduledHit[];
     runs: DateRunHit[];
     coverage: {
         conversations: string;
-        clues: string;
         facts: string;
         scheduled: string;
         runs: string;
     };
     hasMore: {
         conversations: boolean;
-        clues: boolean;
         facts: boolean;
         scheduled: boolean;
         runs: boolean;

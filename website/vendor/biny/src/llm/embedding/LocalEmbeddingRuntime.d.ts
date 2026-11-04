@@ -55,7 +55,7 @@ export declare class LocalEmbeddingManager {
     private readonly moduleLoader;
     constructor(cacheDirectory: string, options?: LocalEmbeddingManagerOptions);
     descriptors(): EmbeddingModelDescriptor[];
-    isReady(): boolean;
+    isReady(modelId?: LocalEmbeddingModelId): boolean;
     list(): Promise<LocalEmbeddingModelStatus[]>;
     isInstalled(modelId: LocalEmbeddingModelId): Promise<boolean>;
     download(modelId: LocalEmbeddingModelId, options?: {

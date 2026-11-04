@@ -10,9 +10,12 @@ export declare class TodoStore {
     private sessionId;
     private items;
     private loaded;
+    private projectionRevision;
     private commitQueue;
     constructor(workspaceRoot: string, sessionId: string);
     initialize(): Promise<void>;
+    /** 新回合组装 prompt 前重读当前 session，接收 CLI 等其他实例已提交的清单。 */
+    refresh(): Promise<void>;
     /** Session resume 后切换真值源，避免继续读写创建 runtime 时的旧 session 清单。 */
     useSession(sessionId: string): Promise<void>;
     private loadCurrentSession;
@@ -27,3 +30,4 @@ export declare class TodoStore {
     private filePath;
     private persist;
 }
+export declare function validateTodoItems(items: readonly unknown[]): TodoItem[];

@@ -67,7 +67,7 @@ export const FilePreviewPanel = memo(function FilePreviewPanel({ width, preview,
   const treeWidth = Math.min(preferredTreeWidth, Math.max(MIN_TREE_WIDTH, width - MIN_PREVIEW_WIDTH));
   const [resizing, setResizing] = useState(false);
   const browserOnly = !preview && narrow;
-  const treeVisible = browserOnly || (fileTreeOpen && !narrow);
+  const treeVisible = !preview || (fileTreeOpen && !narrow);
   // 按目标宽度布局，开合中的裁切宽度不回写用户的文件树宽度。
   const startTreeResize = (event: React.PointerEvent<HTMLDivElement>): void => {
     event.preventDefault();
@@ -122,7 +122,7 @@ export const FilePreviewPanel = memo(function FilePreviewPanel({ width, preview,
               <div className="file-browser-path-actions">
                 {preview.status === "ready" && path ? <IconButton icon={<Icon name="external" size={14} />} label="使用系统应用打开" onClick={() => onOpenFile(path)} size="sm" variant="ghost" /> : null}
                 {!narrow && fileTreeOpen ? <IconButton icon={<Icon name="folder-panel" size={14} />} label="隐藏文件树" onClick={() => setFileTreeOpen(false)} size="sm" variant="ghost" /> : null}
-                <IconButton icon={<Icon name="close" size={14} />} label="关闭当前文件" onClick={onShowFiles} size="sm" variant="ghost" />
+                <IconButton icon={<Icon name="close" size={14} />} label="关闭当前文件" onClick={() => { setFileTreeOpen(true); onShowFiles(); }} size="sm" variant="ghost" />
               </div>
             </header>
             <div className="file-browser-preview-scroll"><FilePreviewContent key={path} preview={preview} projectId={projectId} onOpenFile={onOpenFile} onPreviewFile={onPreviewFile} onRunHtml={onRunHtml} /></div>
@@ -153,7 +153,7 @@ const FilePreviewContent = memo(function FilePreviewContent({ preview, projectId
   if (!file) return <PreviewState icon="file" text="无法读取文件" />;
   const path = file.path;
   const extension = extensionOf(path);
-  if (imageExtensions.has(extension)) return <ImagePreview path={path} projectId={projectId} onOpenFile={onOpenFile} />;
+  if (imageExtensions.has(extension)) return <ImagePreview path={path} projectId={projectId} revision={preview.revision} onOpenFile={onOpenFile} />;
   if (workspaceMediaKind(path)) return <FileMediaPreview path={path} projectId={projectId} onOpenFile={onOpenFile} />;
   if (file.binary) {
     return <PreviewState icon="file" text="这是二进制文件，请使用系统应用打开。">
@@ -168,7 +168,7 @@ const FilePreviewContent = memo(function FilePreviewContent({ preview, projectId
       <button type="button" aria-pressed={mode === "preview"} onClick={() => setMode("preview")}><Icon name="eye" size={13} />预览</button>
       <button type="button" aria-pressed={mode === "code"} onClick={() => setMode("code")}><Icon name="code" size={13} />源码</button>
       <span />
-      <CopyButton label="复制文件内容" showTooltip={false} value={file.content} />
+      <CopyButton label="复制文件内容" preserveTrailingNewline preserveNonBreakingSpaces showTooltip={false} value={file.content} />
     </div>
     {openError ? <div className="inspector-error" role="alert">{openError}</div> : null}
     {file.truncated && mode === "code" ? <div className="inspector-progress">文件过大，仅显示已读取的部分。</div> : null}
@@ -188,7 +188,7 @@ function CodeFilePreview({ file, onRunHtml }: { file: DesktopWorkspaceFilePrevie
         <div className="file-preview-meta-actions">
           {onRunHtml ? <button className="file-preview-run" type="button" aria-label="运行页面" onClick={() => onRunHtml(file.path)}><Icon name="globe" size={14} />运行页面</button> : null}
           <span>{formatBytes(file.bytes)}{file.truncated ? " · 仅显示前 512 KB" : ""}</span>
-          <CopyButton className="copy-button" label="复制文件内容" showTooltip={false} value={file.content ?? ""} />
+          <CopyButton className="copy-button" label="复制文件内容" preserveTrailingNewline preserveNonBreakingSpaces showTooltip={false} value={file.content ?? ""} />
         </div>
       </div>
       <div className="file-preview-body">
@@ -202,8 +202,8 @@ function CodeFilePreview({ file, onRunHtml }: { file: DesktopWorkspaceFilePrevie
 }
 
 /** 图片预览：主进程转 data URL 内联显示；读不到或超限时退回二进制兜底。 */
-function ImagePreview({ path, projectId, onOpenFile }: { path: string; projectId: string; onOpenFile(path: string): void }): React.JSX.Element {
-  const { source, loading } = useInlineImageState(projectId, path);
+function ImagePreview({ path, projectId, revision, onOpenFile }: { path: string; projectId: string; revision?: number; onOpenFile(path: string): void }): React.JSX.Element {
+  const { source, loading } = useInlineImageState(projectId, path, false, revision);
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>();
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);

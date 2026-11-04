@@ -107,6 +107,7 @@ export interface TaskDefinition {
     prompt: string;
     constraints?: string[];
     agent?: string;
+    isolation?: "worktree";
     verification?: TaskVerificationContract;
     review?: PlanReviewCandidate;
     /** 无命令验收的计划节点只能产出只读报告，不授予工作区写权限。 */
@@ -129,8 +130,6 @@ export declare function verifyTaskCandidate(input: {
     expectedArtifactFingerprint?: string;
     approvals?: readonly TaskVerificationApproval[];
     repairScope?: TaskRepairScopeEvidence;
-    /** Fresh, frozen post-worker snapshot; final comparison guards the entire interval through verification. */
-    candidateWorkspaceSnapshot?: TaskWorkspaceSnapshot;
     executor: TaskCommandExecutor;
     signal?: AbortSignal;
 }): Promise<TaskVerificationEvidence>;

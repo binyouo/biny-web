@@ -1,9 +1,9 @@
+import { type RunCommandOptions, type RunCommandResult } from "./oneShot.js";
 import type { AgentAttachment, AgentSessionInfo, ResumedAgentSession } from "../agent/AgentSession.js";
 import type { AgentCapabilitySelection } from "../agent/capabilitySelection.js";
 import { type AgentTurnCancellationReason, type AgentTurnOutcome } from "../agent/types.js";
 import type { PermissionResult } from "../permission/PermissionManager.js";
 import { type CommandRuntime, type CommandRuntimeOptions } from "./CommandRuntime.js";
-import { SessionRunLedger } from "../session/runLedger.js";
 import { SessionLeaseStore } from "./SessionLease.js";
 import type { RuntimeEventAuthority } from "./RuntimeAuthority.js";
 import type { AgentRuntimeUpdate, InteractiveRuntimeSnapshot, RuntimeOperation } from "./agentEvents.js";
@@ -42,7 +42,6 @@ export interface InteractiveAgentRuntimeOptions {
     /** 由 composition root 注入；测试可省略跨进程租约。 */
     sessionLeases?: SessionLeaseStore;
     /** 运行 ledger 可注入，未提供时由真实 CommandRuntime 的 persistenceRoot 创建。 */
-    runLedger?: SessionRunLedger;
     /** 新 RuntimeEvent 先进入 SQLite authority，再由 SessionRecorder 写 JSONL。 */
     runtimeAuthority?: RuntimeEventAuthority;
 }
@@ -52,7 +51,7 @@ export interface InteractiveAgentHost {
 }
 /** Desktop、TUI 和 Unix socket 客户端共享的最小交互运行时形状。 */
 export interface InteractiveRuntimeHandle {
-    submitPrompt(input: string, attachments?: AgentAttachment[], requestIds?: RuntimeRequestIds, promptContext?: string, capabilitySelection?: AgentCapabilitySelection): SubmittedAgentRun;
+    submitPrompt(input: string, attachments?: AgentAttachment[], requestIds?: RuntimeRequestIds, promptContext?: string, capabilitySelection?: AgentCapabilitySelection, modelRoute?: "tool", fastMode?: boolean): SubmittedAgentRun;
     /** Host 内部目标推进回合，不生成可见用户输入。 */
     submitFollowupTurn?(requestIds: RuntimeRequestIds): SubmittedAgentRun;
     /** Host 内部监督回合：输入只进入本轮上下文，不写成新的 user_message。 */
@@ -70,6 +69,7 @@ export interface InteractiveRuntimeHandle {
     cancelCurrentRun(reason: AgentTurnCancellationReason): void;
     cancelRun(runId: string, reason: AgentTurnCancellationReason): boolean;
     answerPermission(requestId: string, result: PermissionResult): void;
+    requestUserInput?(input: unknown, scope?: string): Promise<unknown>;
     /** 以当前 surface 的 writer 身份打开一个 session，并在切换/关闭前保持占用。 */
     claimSession(session: string): Promise<void>;
     /** 释放当前 surface 的 session writer；不传 session 时释放当前 claim。 */
@@ -82,6 +82,9 @@ export interface InteractiveRuntimeHandle {
     startBackgroundOperation<T extends {
         completion: Promise<unknown>;
     }>(operation: RuntimeOperation, start: (signal: AbortSignal) => T): T;
+    executeOneShot(input: string, attachments: AgentAttachment[], options: RunCommandOptions, runId: string): Promise<RunCommandResult & {
+        output: string;
+    }>;
     compactConversation(hint?: string): Promise<string>;
     getSnapshot(): InteractiveRuntimeSnapshot;
     subscribe(listener: (update: AgentRuntimeUpdate) => void): () => void;
@@ -100,7 +103,6 @@ export declare class InteractiveAgentRuntime {
     private static readonly defaultShutdownDrainMs;
     private readonly updates;
     private readonly sessionLeases;
-    private readonly runLedger;
     private readonly runtimeAuthority;
     private sessionLease;
     /** 打开会话后保持的 writer claim；运行 lease 可以与它共享同一个文件 lease。 */
@@ -121,12 +123,16 @@ export declare class InteractiveAgentRuntime {
     private activeOperationCompletion;
     private closePromise;
     private commandRuntimeClosePromise;
+    private oneShot;
     private closed;
     private readonly shutdownDrainMs;
     private resourceChangeUnsubscribe;
+    private goalChangeUnsubscribe;
+    private goalSessionId;
+    private goalSnapshot;
     constructor(commandRuntime: CommandRuntime, options?: InteractiveAgentRuntimeOptions);
     private getInfo;
-    submitPrompt(input: string, attachments?: AgentAttachment[], requestIds?: RuntimeRequestIds, promptContext?: string, capabilitySelection?: AgentCapabilitySelection): SubmittedAgentRun;
+    submitPrompt(input: string, attachments?: AgentAttachment[], requestIds?: RuntimeRequestIds, promptContext?: string, capabilitySelection?: AgentCapabilitySelection, modelRoute?: "tool", fastMode?: boolean): SubmittedAgentRun;
     submitFollowupTurn(requestIds: RuntimeRequestIds): SubmittedAgentRun;
     submitSupervisionTurn(input: string, requestIds: RuntimeRequestIds, promptContext?: string): SubmittedAgentRun;
     steer(input: string, attachments?: AgentAttachment[], requestIds?: RuntimeRequestIds): Promise<QueuedAgentMessage>;
@@ -171,10 +177,14 @@ export declare class InteractiveAgentRuntime {
      * runtime 只跟踪生命周期，不认识子代理等具体领域对象。
      */
     startBackgroundOperation<T extends BackgroundOperation>(operation: RuntimeOperation, start: (signal: AbortSignal) => T): T;
+    executeOneShot(input: string, attachments: AgentAttachment[], options: RunCommandOptions, runId: string): Promise<RunCommandResult & {
+        output: string;
+    }>;
     compactConversation(hint?: string): Promise<string>;
     getSnapshot(): InteractiveRuntimeSnapshot;
     private snapshotInfo;
     subscribe(listener: (update: AgentRuntimeUpdate) => void): () => void;
+    requestUserInput(input: unknown, scope?: string): Promise<unknown>;
     close(): Promise<void>;
     private closeCommandRuntime;
     private runMaintenanceOperation;
@@ -189,8 +199,6 @@ export declare class InteractiveAgentRuntime {
      */
     private recoverTerminalProjection;
     private emitRecoveredTerminal;
-    private startRunLedger;
-    private finishRunLedger;
     /**
      * Canonical terminal fact must exist before the control-plane projection and
      * before any host terminal event becomes visible to a client.

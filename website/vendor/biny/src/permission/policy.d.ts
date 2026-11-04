@@ -7,7 +7,7 @@
 import type { PermissionRequestContext } from "./PermissionManager.js";
 import type { ToolRisk } from "../tools/types.js";
 import { type PreparedFileChange } from "../tools/file/fileChange.js";
-export type ToolName = "Read" | "read_tool_result" | "Write" | "Edit" | "Glob" | "Grep" | "Bash" | "BashOutput" | "KillShell" | "WebSearch" | "WebFetch" | "TodoWrite";
+export type ToolName = "Read" | "Write" | "Edit" | "Glob" | "Grep" | "Bash" | "ProcessStatus" | "KillShell" | "WebSearch" | "WebFetch" | "TodoWrite";
 export interface AnalyzePermissionInput {
     toolName: string;
     args: unknown;

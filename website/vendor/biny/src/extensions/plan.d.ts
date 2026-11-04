@@ -1,6 +1,8 @@
 import type { DurableTaskRunStore } from "../runtime/TaskRunStore.js";
 import type { GoalGraphStore, GraphRecord } from "../runtime/GoalGraphStore.js";
+import type { JsonObjectSchema } from "../tools/schema.js";
 import type { Tool } from "../tools/types.js";
+export declare const planCommandSchemas: Record<"draft" | "start" | "update", JsonObjectSchema>;
 export interface PlanToolOptions {
     graphs: GoalGraphStore;
     taskRuns: DurableTaskRunStore;

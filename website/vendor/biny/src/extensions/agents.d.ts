@@ -6,8 +6,10 @@ export interface SubagentDefinition {
     prompt: string;
     /** frontmatter tools 声明的工具子集；省略表示使用全局 allowedTools。 */
     tools?: string[];
-    /** frontmatter model 声明的模型别名覆盖；省略时沿用 subagent 默认模型。 */
+    /** 内置与 ACP 使用 Biny 模型别名；直接 CLI 使用原始模型 ID。 */
     model?: string;
+    runtime?: "auto" | "builtin" | "codex" | "claude-code" | "acp";
+    isolation?: "worktree";
     scope: SubagentDefinitionScope;
     /** 展示路径：项目定义为 workspace 相对路径，全局定义以 ~ 开头。 */
     path: string;
@@ -24,3 +26,5 @@ export declare function loadSubagentDefinitions(options: LoadSubagentDefinitions
 export declare function findSubagentDefinition(definitions: readonly SubagentDefinition[], name: string): SubagentDefinition | undefined;
 /** system prompt 里的具名子代理元数据段（正文不进入主上下文，保持渐进披露）。 */
 export declare function buildSubagentDefinitionsPrompt(definitions: readonly SubagentDefinition[]): string;
+export declare function createSubagentDefinition(options: LoadSubagentDefinitionsOptions, name: string, content: string, scope: SubagentDefinitionScope): Promise<SubagentDefinition>;
+export declare function deleteSubagentDefinition(options: LoadSubagentDefinitionsOptions, name: string, global?: boolean): Promise<SubagentDefinition>;

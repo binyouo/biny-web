@@ -10,10 +10,15 @@ import { Icon } from "./Icon.js";
 
 interface CopyButtonProps {
   value: string;
+  role?: "menuitem";
   label?: string;
   className?: string;
   size?: number;
   resolveValue?: () => string;
+  /** 参数等原始文本需要保留末尾换行。 */
+  preserveTrailingNewline?: boolean;
+  /** 源码和文件内容需要保留字面的不换行空格。 */
+  preserveNonBreakingSpaces?: boolean;
   /** 图标旁展示文字标签（复制成功变为「已复制」）。 */
   showLabel?: boolean;
   showTooltip?: boolean;
@@ -21,10 +26,13 @@ interface CopyButtonProps {
 
 export function CopyButton({
   value,
+  role,
   label = "复制",
   className = "copy-button",
   size = 12,
   resolveValue,
+  preserveTrailingNewline = false,
+  preserveNonBreakingSpaces = false,
   showLabel = false,
   showTooltip = true
 }: CopyButtonProps): React.JSX.Element {
@@ -43,6 +51,7 @@ export function CopyButton({
   const feedback = copied ? "已复制" : failed ? "复制失败，点击重试" : label;
   return (
     <button
+      role={role}
       aria-label={feedback}
       className={`${className}${copied ? " is-copied" : ""}`}
       onClick={() => {
@@ -53,8 +62,9 @@ export function CopyButton({
         setCopied(false);
         setFailed(false);
         // 去掉结尾换行：代码块渲染时会带一个，复制到别处会多出一空行。
-        const text = (resolveValue?.() ?? value).replace(/\n$/, "");
-        void copyToClipboard(text).then((ok) => {
+        const original = resolveValue?.() ?? value;
+        const text = preserveTrailingNewline ? original : original.replace(/\n$/, "");
+        void copyToClipboard(text, { preserveNonBreakingSpaces }).then((ok) => {
           if (requestRef.current !== request) return;
           requestRef.current = undefined;
           if (!ok) { setFailed(true); return; }
@@ -66,7 +76,10 @@ export function CopyButton({
       type="button"
     >
       <Icon name={copied ? "check" : "copy"} size={size} />
-      {showLabel ? <span className="copy-button-text" data-copied={copied || undefined}>{copied ? "已复制" : label}</span> : null}
+      {showLabel ? <span className="copy-button-text button-state-label" data-copied={copied || undefined}>
+        <span aria-hidden={copied}>{label}</span>
+        <span aria-hidden={!copied}>已复制</span>
+      </span> : null}
     </button>
   );
 }

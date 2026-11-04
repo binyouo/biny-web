@@ -9,6 +9,7 @@ import type { PermissionResult } from "../../../../permission/PermissionManager.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
 import type { DesktopProject, DesktopRuntimeError, DesktopRuntimeMutation, DesktopRuntimeProjection, DesktopPlanProjection, DesktopSessionLimits, DesktopSessionWriterConflict } from "../../../protocol.js";
+import type { AttachmentReference } from "../../../../attachments/store.js";
 import type { RecipeNotice, SkillExtractionCardState } from "../app/useDesktopEventBridge.js";
 import { hasSubmittedUserMessage } from "../chatModel.js";
 import type { TimelineTurn } from "../sessionTimeline.js";
@@ -30,12 +31,14 @@ import type { CompactionCommandState } from "../app/useCompactionCommand.js";
 import { CompactionStatus } from "./chat/CompactionStatus.js";
 import { ActivitySuggestions } from "./workspace/ActivitySuggestions.js";
 import { ChatHero } from "./workspace/ChatHero.js";
+import { useChatStartTransition } from "./workspace/useChatStartTransition.js";
 
 /** 发送消息的临时投影；真实消息或队列接管后由 App 清掉。 */
 export interface PendingPrompt {
   id: string;
   projectId: string;
   text: string;
+  attachments?: AttachmentReference[];
   sessionId?: string;
   messageId: string;
 }
@@ -77,7 +80,7 @@ interface WorkspaceProps {
   onShowMessageReferences(messageId: string): void;
   onAddQuoteToConversation(messageId: string, quote: string): Promise<void>;
   onResolvePermission(requestId: string, result: PermissionResult): Promise<void>;
-  onRetry(targetMessageId: string, input: string, idempotencyKey: string): Promise<void>;
+  onRetry(targetMessageId: string, input: string, attachments: AttachmentReference[], idempotencyKey: string): Promise<void>;
   onSwitchVersion(messageId: string, direction: "prev" | "next"): Promise<void>;
   onRetryRuntime(): Promise<void>;
   writerConflict?: DesktopSessionWriterConflict;
@@ -103,9 +106,8 @@ interface WorkspaceProps {
   pendingPrompt?: PendingPrompt;
   skillDescriptions?: ReadonlyMap<string, string>;
   skillLabels?: ReadonlyMap<string, string>;
-  /** 顶部工具条：自动化/技能入口（搜索与新建任务在侧栏 chrome）。 */
+  /** 顶部自动化入口（搜索与新建任务在侧栏 chrome）。 */
   onOpenRuntime(): void;
-  onOpenExtensions(): void;
   onSendActivitySuggestion?(text: string): Promise<void>;
   /** 顶层新建会话：展示欢迎 hero（而不是裸的空态提示行）。 */
   heroStart?: boolean;
@@ -165,7 +167,6 @@ export function Workspace({
   workspaceContext,
   inspectorRail,
   onOpenRuntime: _onOpenRuntime,
-  onOpenExtensions: _onOpenExtensions,
   onSendActivitySuggestion,
   heroStart = false,
   onWidgetDraftPrompt,
@@ -179,6 +180,7 @@ export function Workspace({
     : undefined;
   const streaming = running || visiblePendingPrompt !== undefined || turns.some((turn) => turn.status === "running" || turn.status === "waiting_permission");
   const lastTurn = turns.at(-1);
+  const displayedGenerationError = generationError ? generationErrorWithToolCause(generationError, lastTurn) : undefined;
   // 上限预警按会话 dismiss：换会话要重新提示，同会话点掉后不再打扰。
   const [limitBannerDismissedFor, setLimitBannerDismissedFor] = useState<string>();
   const showLimitBanner = Boolean(sessionLimits?.nearSizeLimit && sessionId && limitBannerDismissedFor !== sessionId);
@@ -189,13 +191,15 @@ export function Workspace({
     : runtimeProjection?.worktrees.find((worktree) => worktree.sessionId === sessionId);
   const worktreeView = sessionIsolation === "worktree" ? desktopWorktreeView(selectedWorktree) : undefined;
   const hasConversation = (turns.length > 0 || streaming || compacting) && Boolean(projectId);
+  const showHero = heroStart && !hasConversation && !loading;
+  const { bodyRef, composerRef, heroRef, keepHero } = useChatStartTransition({ hero: showHero, projectId, sessionId, pendingPrompt });
   const branchFromTimeline = useCallback((): void => {
     void onCreateBranch().catch(onRuntimeError);
   }, [onCreateBranch, onRuntimeError]);
 
   return (
     <WidgetContext.Provider value={widgetContext}><div className="workspace biny-workspace biny-workspace-chat">
-      <div className={`biny-workspace-main${heroStart ? " is-hero" : ""}`}>
+      <div className={`biny-workspace-main${showHero ? " is-hero" : ""}`}>
         {runtimePanelOpen ? null : inspectorRail}
         <header className={`biny-chat-toolbar${chatScrolled ? " is-scrolled" : ""}`}>
           <div className="biny-chat-drag-region">
@@ -248,7 +252,7 @@ export function Workspace({
           selectedSessionId={sessionId}
           worktreeSession={sessionIsolation === "worktree"}
         />
-        <div className="biny-chat-body">
+        <div className="biny-chat-body" ref={bodyRef}>
           {showLimitBanner && sessionLimits && sessionId ? (
             <div className="biny-session-limit-banner" role="status">
               <span>
@@ -279,7 +283,7 @@ export function Workspace({
                 onRetry={onRetry}
                 onSwitchVersion={onSwitchVersion}
                 pendingUserMessage={visiblePendingPrompt
-                  ? { id: visiblePendingPrompt.id, messageId: visiblePendingPrompt.messageId, content: visiblePendingPrompt.text }
+                  ? { id: visiblePendingPrompt.id, messageId: visiblePendingPrompt.messageId, content: visiblePendingPrompt.text, attachments: visiblePendingPrompt.attachments }
                   : undefined}
                 runtimeActiveRunId={runtimeActiveRunId}
                 skillDescriptions={skillDescriptions}
@@ -289,16 +293,17 @@ export function Workspace({
                 turns={turns}
               />
             </ChatScroll>
-          ) : heroStart ? (
-            <ChatHero leaving={Boolean(visiblePendingPrompt)}>
-              {!loading && !hasConversation && !running && !visiblePendingPrompt && !writerConflict && !runtimeError && onSendActivitySuggestion
-                ? <ActivitySuggestions onSend={onSendActivitySuggestion} onError={onRuntimeError} /> : null}
-            </ChatHero>
-          ) : (
+          ) : showHero ? null : (
             <div className="biny-chat-empty"><Icon name="message" size={20} /><span>开始一段新的对话</span></div>
           )}
+          {showHero || keepHero ? (
+            <ChatHero ref={heroRef} leaving={!showHero}>
+              {showHero && !running && !visiblePendingPrompt && !writerConflict && !runtimeError && onSendActivitySuggestion
+                ? <ActivitySuggestions onSend={onSendActivitySuggestion} onError={onRuntimeError} /> : null}
+            </ChatHero>
+          ) : null}
         </div>
-        <div className={`biny-chat-composer${writerConflict || runtimeError ? " has-runtime-recovery" : ""}`} inert={loading} aria-busy={loading}>
+        <div ref={composerRef} className={`biny-chat-composer${writerConflict || runtimeError ? " has-runtime-recovery" : ""}`} inert={loading} aria-busy={loading}>
             {sessionId && !writerConflict && !runtimeError ? <>
               <SessionGoalPanel key={`${sessionId}:${planProjection?.goal?.goalId ?? ""}`} sessionId={sessionId} projection={planProjection} onMutation={onRuntimeMutation} onError={onRuntimeError} />
               <TodoProgressPanel sessionId={sessionId} projection={planProjection} running={running} />
@@ -317,7 +322,12 @@ export function Workspace({
             {skillExtraction ? <SkillExtractionCard state={skillExtraction} onDismiss={() => onDismissSkillExtraction?.()} /> : null}
             {compactionState && compactionState.status !== "pending" ? <CompactionStatus state={compactionState} onDismiss={onDismissCompaction} onRetry={onRetryCompaction} /> : null}
             {generationError && !writerConflict && !runtimeError ? (
-              <GenerationErrorBanner error={generationError} model={generationError === lastTurn?.error ? lastTurn?.model?.label : undefined} onDismiss={onDismissGenerationError} />
+              <GenerationErrorBanner
+                error={displayedGenerationError ?? generationError}
+                title={displayedGenerationError !== generationError ? "操作结果未知" : undefined}
+                model={lastTurn?.error && lastTurn.status !== "completed" && lastTurn.error.trim() === generationError.trim() && displayedGenerationError === generationError ? lastTurn.model?.label : undefined}
+                onDismiss={onDismissGenerationError}
+              />
             ) : null}
             {writerConflict || runtimeError ? <RuntimeRecoveryBanner
               key={`${projectId}:${sessionId}:${writerConflict ? "conflict" : runtimeError?.kind}`}
@@ -332,6 +342,13 @@ export function Workspace({
       {streaming ? <span className="biny-streaming-state" aria-hidden="true" /> : null}
     </div></WidgetContext.Provider>
   );
+}
+
+function generationErrorWithToolCause(error: string, turn: TimelineTurn | undefined): string {
+  if (!turn || turn.status !== "failed" || turn.error?.trim() !== error.trim()) return error;
+  const tool = turn.tools.find(candidate => candidate.executionStatus === "unknown" && candidate.operationId && candidate.error
+    && error.trim() === `Cannot continue: tool ${candidate.tool} (${candidate.operationId}) has an unknown side effect. Inspect its outcome before retrying.`);
+  return tool?.error ? `工具 ${tool.tool} 的执行结果未知，请先检查实际结果，再决定是否重试。\n原因：${tool.error}` : error;
 }
 
 function LoadingState(): React.JSX.Element {

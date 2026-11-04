@@ -4,6 +4,8 @@ import type { Tool } from "../types.js";
 import { type HostnameResolver } from "./addressPolicy.js";
 export interface WebFetchArgs {
     url: string;
+    raw?: boolean;
+    environment?: string;
     offset?: number;
     length?: number;
 }

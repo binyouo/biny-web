@@ -30,7 +30,7 @@ export declare class WorkspaceContext {
     private repoMapRefreshedAt;
     private repoMapDirty;
     private initialized;
-    constructor(workspaceRoot: string, ignore: string[], instructionMaxBytes: number,
+    constructor(workspaceRoot: string, ignore: string[], instructionMaxBytes: number, 
     /** 全局指令文件；传 undefined 关闭，默认 ~/.config/biny/AGENTS.md。 */
     globalInstructionFile?: string | undefined);
     initialize(signal?: AbortSignal): Promise<void>;

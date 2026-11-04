@@ -10,6 +10,7 @@ export declare function activityContextForTurn(options: {
     input: string;
     now: Date;
     enabled: boolean;
-    getEmbeddingRuntime: () => Promise<EmbeddingModelRuntime | undefined>;
+    getEmbeddingRuntime: (signal?: AbortSignal) => Promise<EmbeddingModelRuntime | undefined>;
+    onPendingTask?: (task: Promise<unknown>) => void;
     signal?: AbortSignal;
 }): Promise<ActivityChatContext | undefined>;

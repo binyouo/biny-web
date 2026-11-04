@@ -4,6 +4,8 @@ import type { ContextStatus } from "../agent/context/types.js";
 import type { PermissionAction, PermissionGrantScope, PermissionMode } from "../permission/PermissionManager.js";
 import type { SessionUsage } from "../session/metadata.js";
 import type { RuntimeResourceReadiness } from "./host/resources.js";
+import type { AttachmentReference } from "../attachments/store.js";
+import type { SessionGoalStatus } from "./SessionGoalStore.js";
 
 export type AgentRunStatus =
   | "thinking"
@@ -29,6 +31,8 @@ export type RuntimeOperation =
   | "soul"
   | "personalization"
   | "plan"
+  | "tool"
+  | "verification"
   | "model_catalog"
   | "checkpoint"
   | "message_version";
@@ -58,7 +62,7 @@ export interface AgentRunModel {
 export type AgentHostEvent =
   | RunStartedEvent
   | (AgentEventBase & { type: "session.title"; title: string })
-  | (AgentEventBase & { type: "message.user"; messageId: string; content: string; delivery?: "steer" | "queue" })
+  | (AgentEventBase & { type: "message.user"; messageId: string; content: string; attachments?: AttachmentReference[]; delivery?: "steer" | "queue" })
   | (AgentEventBase & AgentSessionUpdate)
   | (AgentEventBase & { type: "permission.requested"; requestId: string; toolCallId: string; request: AgentPermissionEventRequest })
   | (AgentEventBase & { type: "permission.resolved"; requestId: string; toolCallId: string; tool: string; approved: boolean; action?: PermissionAction; scope?: PermissionGrantScope; message?: string })
@@ -92,7 +96,7 @@ export type AgentHostEvent =
   /** 回合后技能提取进度；不进入时间线，仅触发聊天内提示卡。 */
   | (AgentEventBase & {
     type: "skill_extraction.updated";
-    stage: "extracting" | "saving" | "done";
+    stage: "analyzing" | "extracting" | "saving" | "done" | "skipped" | "failed";
     skillName?: string;
     skillDescription?: string;
     updated?: boolean;
@@ -172,6 +176,7 @@ export interface InteractiveRuntimeSnapshot {
   queuedMessages?: QueuedRunMessageSnapshot[];
   /** Host 级 MCP/Skill 基线；旧客户端缺省时按未知处理。 */
   resourceReadiness?: RuntimeResourceReadiness;
+  sessionGoal?: { objective: string; status: SessionGoalStatus };
 }
 
 export interface QueuedRunMessageSnapshot {

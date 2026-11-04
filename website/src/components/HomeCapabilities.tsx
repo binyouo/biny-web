@@ -9,9 +9,10 @@ import "./home-capabilities.css";
 const features: { id: string; icon: IconName; title: string; body: string; slides: CapabilitySlide[] }[] = [
   {
     id: "tools", icon: "terminal", title: "工具调用，过程看得见。",
-    body: "读文件、写报告、运行命令。展开工具记录，就能查看文件变更和执行结果。",
+    body: "读文件、写报告、运行命令。也可以交给 Code Mode 用一段脚本串起多步操作；展开工具记录，就能查看参数、文件变更和执行结果。",
     slides: [
-      { caption: "工具调用", src: "/features/tool-calls.png", width: 1357, height: 828, alt: "Biny 展开销量报告的文件差异与命令执行记录" },
+      { caption: "Code Mode", src: "/features/code-mode.png", width: 1353, height: 828, alt: "Biny 用 Code Mode 脚本汇总本周提交，展开查看脚本参数与执行结果" },
+      { caption: "工具调用", src: "/features/tool-calls.png", width: 1353, height: 828, alt: "Biny 展开工具记录，查看 src/utils/sort.ts 的文件差异与 pnpm test 执行结果" },
     ],
   },
   {

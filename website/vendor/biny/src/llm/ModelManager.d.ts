@@ -4,7 +4,7 @@ import { modelCapabilities, modelContextBudget } from "../ai/capabilities.js";
 import type { ModelCatalogEntry } from "../ai/types.js";
 import { type ModelChoice } from "./ModelRegistry.js";
 import type { AgentModel } from "../agent/core/types.js";
-import type { ModelSettings } from "./ProviderRuntime.js";
+import { type ModelSettings } from "./ProviderRuntime.js";
 import { AiRegistry } from "./AiRegistry.js";
 import { type ModelsStore } from "./ModelsStore.js";
 import type { ThinkingSelection } from "./modelThinking.js";
@@ -37,12 +37,16 @@ export declare class ModelManager {
     private runtime;
     private observedConfigRevision;
     private readonly providerCredentials;
+    private catalogFreshness?;
+    private catalogRefresh?;
+    private closed;
     constructor(workspaceRoot: string, config: AgentConfig, configStore?: AgentConfigStore, ai?: AiRegistry, modelsStore?: ModelsStore | undefined, catalogs?: readonly [string, ModelCatalogEntry[]][]);
     static create(workspaceRoot: string, config: AgentConfig, configStore?: AgentConfigStore, ai?: AiRegistry, modelsStore?: ModelsStore): Promise<ModelManager>;
     listModels(): ModelChoice[];
     getInfo(): ModelRuntimeInfo;
     getModel(): AgentModel;
     getModelSettings(): ModelSettings;
+    getConfigSnapshot(): AgentConfig;
     getCapabilities(): ReturnType<typeof modelCapabilities>;
     getContextBudget(): ReturnType<typeof modelContextBudget>;
     /**
@@ -50,6 +54,10 @@ export declare class ModelManager {
      * 只校验当前 Provider 并在 OAuth 临近过期时续期，不切换回合的模型选择。
      */
     preparePrompt(signal?: AbortSignal, reloadConfig?: boolean): Promise<void>;
+    private adoptStoredCatalog;
+    private refreshStaleCatalog;
+    cancelCatalogRefresh(): void;
+    close(): Promise<void>;
     private recoverContextMetadata;
     refreshModelCatalog(providerAlias?: string): Promise<ModelCatalogEntry[]>;
     switchModel(alias: string, thinking?: ThinkingSelection): Promise<ModelRuntimeInfo>;

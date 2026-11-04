@@ -43,6 +43,7 @@ const rehypePlugins: PluggableList = [rehypeRaw, [rehypeSanitize, {
 }], [rehypeKatex, { throwOnError: false, errorColor: "var(--biny-text-secondary)", trust: false }]];
 const StreamingContext = createContext(false);
 const WordRevealContext = createContext(false);
+const christmasMarker = "<--Christmas-->";
 const MermaidBlock = lazy(() => import("./MermaidBlock.js").then(module => ({ default: module.MermaidBlock })));
 const transformUrl: NonNullable<React.ComponentProps<typeof Markdown>["urlTransform"]> = (url, key, node) => {
   if (key === "href" && (url.startsWith("biny://") || url.startsWith("file://"))) return url;
@@ -62,6 +63,14 @@ const MarkdownBlock = memo(function MarkdownBlock({ content, components, remarkP
   return <Markdown urlTransform={transformUrl} components={components} remarkPlugins={remarkPlugins}
     rehypePlugins={rehypePlugins}>{content}</Markdown>;
 });
+
+// 回调更新不能替换段落类型，否则原生文字选区会随节点重建丢失。
+function MarkdownParagraph({ node: _node, children, ...props }: React.ComponentProps<"p"> & ExtraProps): React.JSX.Element {
+  const reveal = useContext(WordRevealContext);
+  const visible = React.Children.toArray(children).filter(child => child !== "");
+  if (visible.length === 1 && isValidElement<{ node?: { tagName?: string } }>(visible[0]) && visible[0].props.node?.tagName === "img") return <>{children}</>;
+  return <p {...props}>{reveal ? revealWords(children) : children}</p>;
+}
 
 interface MarkdownContentProps {
   content: string;
@@ -91,7 +100,8 @@ export const MarkdownContent = memo(function MarkdownContent({
   useEffect(() => { if (streaming) setWasStreaming(true); }, [streaming]);
   // 流结束不切换组件树，保留代码/表格节点和用户的横向滚动位置。
   const partitioned = streaming || wasStreaming;
-  const blocks = useMemo(() => partitioned ? parseBlocks(content) : [content], [content, parseBlocks, partitioned]);
+  const displayContent = markdown ? content.replaceAll(christmasMarker, "🎄") : content;
+  const blocks = useMemo(() => !markdown ? [] : partitioned ? parseBlocks(displayContent) : [displayContent], [displayContent, markdown, parseBlocks, partitioned]);
   const remarkPlugins = useMemo(
     () => [[remarkGfm, { singleTilde: false }], remarkCjkFriendly, [remarkCjkStrikethrough, { singleTilde: false }],
       ...(breaks ? [remarkBreaks] : []), [remarkMath, { singleDollarTextMath: singleDollarMath }]] as PluggableList,
@@ -102,12 +112,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   // 配合入场动画表现为持续闪烁（.markdown-table 横向滚动位置也会被不断重置），
   // 因此必须用 useMemo 稳定组件身份，让 React 原地更新 DOM。
   const components = useMemo<Components>(() => ({
-    p: function Paragraph({ node: _node, children, ...props }) {
-      const reveal = useContext(WordRevealContext);
-      const visible = React.Children.toArray(children).filter(child => child !== "");
-      if (visible.length === 1 && isValidElement<{ node?: { tagName?: string } }>(visible[0]) && visible[0].props.node?.tagName === "img") return <>{children}</>;
-      return <p {...props}>{reveal ? revealWords(children) : children}</p>;
-    },
+    p: MarkdownParagraph,
     a({ node: _node, children, ...props }) {
       const href = props.href;
       const path = localPathFromHref(href);
@@ -117,7 +122,7 @@ export const MarkdownContent = memo(function MarkdownContent({
       // 页内锚点（如脚注）保留默认跳转，不能带 target=_blank 否则点击被吞。
       if (path) return <FileLinkCard onPreviewFile={onPreviewFile} path={path} />;
       if (href?.startsWith("biny://")) {
-        if (/^biny:\/\/(?:date|project|file|thread|memory|snippet|scratch|skill|mcp|model|provider|tool|task|cron|crystal|bundle|plan)\//u.test(href)) {
+        if (/^biny:\/\/(?:date|project|file|thread|memory|snippet|scratch|skill|mcp|model|provider|tool|task|cron|plan)\//u.test(href)) {
           return <LocalReferenceLink href={href} projectId={projectId}>{children}</LocalReferenceLink>;
         }
         return (
@@ -188,15 +193,19 @@ function mediaSources(node?: ExtraProps["node"]): { src?: string; type?: string 
 
 const wordSegments = new Intl.Segmenter("zh", { granularity: "word" });
 function revealWords(node: React.ReactNode): React.ReactNode {
-  if (typeof node === "string") return [...wordSegments.segment(node)].map(({ segment }, index) => /\s/u.test(segment)
-    ? <React.Fragment key={index}>{segment}</React.Fragment> : <span key={index} className="markdown-stream-word">{segment}</span>);
-  if (Array.isArray(node)) return node.map((child, index) => <React.Fragment key={index}>{revealWords(child)}</React.Fragment>);
-  if (isValidElement<{ className?: string; children?: React.ReactNode; node?: { tagName?: string } }>(node)) {
-    const tag = typeof node.type === "string" ? node.type : node.props.node?.tagName;
-    if ((tag && ["code", "pre", "math", "svg", "img"].includes(tag)) || node.props.className?.includes("katex")) return node;
-    if (node.props.children !== undefined) return React.cloneElement(node, undefined, revealWords(node.props.children));
-  }
-  return node;
+  // 行内标记闭合时 children 会从单字符串变为数组；两种输入保持相同层级，避免前文重新淡入。
+  return React.Children.toArray(node).map((child, index) => {
+    let revealed: React.ReactNode = child;
+    if (typeof child === "string") {
+      revealed = [...wordSegments.segment(child)].map(({ segment }, wordIndex) => /\s/u.test(segment)
+        ? <React.Fragment key={wordIndex}>{segment}</React.Fragment> : <span key={wordIndex} className="markdown-stream-word">{segment}</span>);
+    } else if (isValidElement<{ className?: string; children?: React.ReactNode; node?: { tagName?: string } }>(child)) {
+      const tag = typeof child.type === "string" ? child.type : child.props.node?.tagName;
+      const skip = (tag && ["code", "pre", "math", "svg", "img"].includes(tag)) || child.props.className?.includes("katex");
+      if (!skip && child.props.children !== undefined) revealed = React.cloneElement(child, undefined, revealWords(child.props.children));
+    }
+    return <React.Fragment key={index}>{revealed}</React.Fragment>;
+  });
 }
 
 function LocalReferenceLink({ href, projectId, children }: { href: string; projectId: string; children: React.ReactNode }): React.JSX.Element {
@@ -231,7 +240,9 @@ function fencedCode(children: React.ReactNode): { code: string; language?: strin
 function localPathFromHref(href?: string): string | undefined {
   if (!href || href.startsWith("#") || (/^[A-Za-z][A-Za-z\d+.-]*:/.test(href) && !href.startsWith("file://"))) return undefined;
   const isFileUrl = href.startsWith("file://");
-  const encoded = isFileUrl ? href.slice("file://".length) : href;
+  // 仅规范本机 file URL 的前缀，保留原有查询、片段和百分号解码行为。
+  const encoded = isFileUrl ? href.slice("file://".length)
+    .replace(/^localhost(?=\/(?!\/))/i, "").replace(/^\/([A-Za-z]:\/)/, "$1") : href;
   let decoded = encoded;
   try {
     decoded = decodeURIComponent(encoded);
@@ -239,7 +250,8 @@ function localPathFromHref(href?: string): string | undefined {
     // Keep malformed local paths usable instead of breaking the whole message.
   }
   // file:// 已明确表达本地路径意图；路径可以含空格，不再套 looksLikePath 启发式。
-  if (isFileUrl) return stripLineSuffix(decoded);
+  // 显式 ./ 目标同样是路径；解码后的文件名空格不能把它误判为外链。
+  if (isFileUrl || encoded.startsWith("./")) return stripLineSuffix(decoded);
   return looksLikePath(decoded) ? stripLineSuffix(decoded) : undefined;
 }
 

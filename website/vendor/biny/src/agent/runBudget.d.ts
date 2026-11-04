@@ -7,7 +7,5 @@ import type { AgentConfig } from "../config/schema.js";
 export interface RunBudget {
     softStepLimit: number;
     hardStepLimit: number;
-    maxToolCalls: number;
-    maxRepeatedActions: number;
 }
 export declare function resolveRunBudget(agent: AgentConfig["agent"]): RunBudget;

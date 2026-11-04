@@ -29,7 +29,6 @@ export declare class InMemoryModelsStore implements ModelsStore {
 }
 export declare class FileModelsStore implements ModelsStore {
     readonly filePath: string;
-    private readonly migrateDefaultState;
     private pending;
     constructor(filePath?: string);
     read(providerId: string): Promise<ModelsStoreEntry | undefined>;

@@ -1,7 +1,8 @@
 import { type AgentConfigStore } from "../config/store.js";
 import type { AgentConfig } from "../config/schema.js";
-import { AgentSession } from "../agent/AgentSession.js";
+import { AgentSession, type AgentAttachment } from "../agent/AgentSession.js";
 import type { AgentTurnOutcome, AgentPermissionRequest, AgentPermissionResult } from "../agent/types.js";
+import { ModelManager } from "../llm/ModelManager.js";
 import { type ToolCatalogDefinition } from "../tools/registry.js";
 import { UserInputRequests } from "./userInput.js";
 import { CheckpointStore } from "../session/checkpointStore.js";
@@ -23,6 +24,7 @@ import { CapabilityStore } from "./CapabilityStore.js";
 import { RuntimeHostResourceScope, type RuntimeHostResourceRegistry, type RuntimeResourceSnapshot, type RuntimeResourceReadiness } from "./host/resources.js";
 import { HeartbeatScheduler } from "../agent/context/heartbeat.js";
 import { type BrowserAutomationEndpoint } from "../tools/browser.js";
+import type { AgentSessionEvent } from "../agent/types.js";
 import { type TaskVerificationContract, type TaskCommandExecution, type TaskVerificationApproval } from "./taskVerification.js";
 export interface CommandRuntime {
     workspaceRoot: string;
@@ -33,20 +35,24 @@ export interface CommandRuntime {
     managedProcesses: ManagedProcessService;
     checkpoints: CheckpointStore | undefined;
     mcp: McpToolHost;
+    configureMcp(servers?: string[], force?: boolean): Promise<void>;
     runtimeAuthority: RuntimeEventAuthority;
     taskRuns: DurableTaskRunStore;
     automationStore: AutomationStore;
     heartbeat: HeartbeatScheduler;
+    resolveToolModelForRun?(signal?: AbortSignal): Promise<ModelManager | undefined>;
     graphs: GoalGraphStore;
     sessionGoals: SessionGoalStore;
     capabilities: CapabilityStore;
     subagents: SubagentTaskManager | undefined;
     taskCommunication?: TaskCommunication;
+    isTaskExecuting(taskRunId: string): boolean;
     userInput?: UserInputRequests;
     setUserInputRun?(run?: {
         sessionId: string;
         runId: string;
     }): void;
+    setOwnerNotificationSink?(sink: ((notification: string) => Promise<void>) | undefined): void;
     extensionReport(section?: ExtensionSection): string;
     /** 扩展实时状态的快照；`/status` 等命令的卡片和文本报告共用。 */
     extensionStatus(): ExtensionStatus;
@@ -54,8 +60,8 @@ export interface CommandRuntime {
     listSkills(): SkillDefinition[];
     /** 供下一回合能力选择使用的实时工具目录，不修改活动回合的执行注册表。 */
     listTools(): RuntimeToolCatalogEntry[];
-    /** 每个新根回合前重新扫描 Skill，使新增和元数据修改无需重启即可生效。 */
-    refreshSkills(): Promise<void>;
+    /** 按目录缓存有效期刷新 Skill；显式强制刷新使文件修改立即生效。 */
+    refreshSkills(force?: boolean): Promise<void>;
     /** 刷新共享 MCP/Skill 代理；回合开始前调用，避免活动回合看到半套工具。 */
     refreshExtensionTools?(): void;
     /** Desktop 客户端能力可在 Host 生命周期内挂载或撤销。 */
@@ -69,7 +75,7 @@ export interface CommandRuntime {
     /** 实时重新扫描具名子代理定义（会话期间可编辑生效）。 */
     listSubagentAgents(): Promise<SubagentDefinition[]>;
     startSubagentTask(task: string, options?: SubagentTaskRunOptions): SubmittedSubagentTask;
-    /** Host、Desktop fallback 与模型可见 Task 共用的唯一 TaskRun 派发入口。 */
+    /** Host 与模型可见 Task 共用的唯一 TaskRun 派发入口。 */
     startTaskRun(taskRunId: string, options?: {
         retrySafety?: TaskRetrySafety;
     }): Promise<{
@@ -82,9 +88,7 @@ export interface CommandRuntime {
         completion: Promise<TaskClosureResult>;
     }>;
     continueTaskRun(taskRunId: string, message: string, requestId?: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
-    canResumeWorkerTask?(taskRunId: string): Promise<boolean>;
-    /** Read-only routing evidence; only explicit resume may persist a missing owner. */
-    legacyWorkerOwner?(taskRunId: string): Promise<string>;
+    canResumeWorkerTask(taskRunId: string): Promise<boolean>;
     /** Exact validated resume admission, before its durable owner can be reconciled. */
     pendingTaskResume?(taskRunId: string): {
         attemptId: string;
@@ -93,6 +97,7 @@ export interface CommandRuntime {
     /** 一次性主任务通过同一份 TaskRun 验收闭环执行，不把回合完成当作产物已验证。 */
     runTaskWithVerification(input: {
         prompt: string;
+        attachments?: AgentAttachment[];
         verification: TaskVerificationContract;
         signal?: AbortSignal;
         /** Stops model work before the full run deadline so verification can use the reserve. */
@@ -105,6 +110,7 @@ export interface CommandRuntime {
     }>;
     cancelTaskRun(taskRunId: string, reason?: string): TaskRunWithAttempts;
     startPlanDraft(graphId: string, revision: number, signal?: AbortSignal): Promise<unknown>;
+    sessionCommand(command: string, input: unknown, scope?: string, revision?: number, signal?: AbortSignal, onEvent?: (event: AgentSessionEvent) => void): Promise<unknown>;
     /** Task 验收只允许通过与 Agent 相同的 Bash 权限、调度、审计和取消链执行。 */
     executeTaskCheck(input: {
         command: string;
@@ -122,7 +128,7 @@ export interface CommandRuntime {
     }): Promise<unknown>;
     /** 不依赖前台 session 状态的进程内工作，防止空闲回收打断日报或子代理。 */
     hasBackgroundWork(): boolean;
-    setSubagentParentRunId(parentRunId?: string): void;
+    setSubagentParentRunId(parentRunId?: string, supervision?: boolean): void;
     close(): Promise<void>;
 }
 export interface RuntimeToolCatalogEntry {
@@ -137,6 +143,8 @@ export interface RuntimeToolCatalogEntry {
 }
 export interface CommandRuntimeOptions {
     persistenceRoot?: string;
+    /** Host 的主 checkout，避免在父隔离工作树内部再创建可被父级清理删除的目录。 */
+    worktreeRoot?: string;
     /** Defaults to Runtime ownership; only a disposable enclosing environment may outlive it. */
     processLifetime?: ManagedProcessLifetime;
     configStore?: AgentConfigStore;

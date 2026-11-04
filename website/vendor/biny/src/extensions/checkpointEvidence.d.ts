@@ -5,15 +5,7 @@ declare const schema: z.ZodObject<{
     claimId: z.ZodString;
     offset: z.ZodOptional<z.ZodNumber>;
     length: z.ZodOptional<z.ZodNumber>;
-}, "strict", z.ZodTypeAny, {
-    claimId: string;
-    offset?: number | undefined;
-    length?: number | undefined;
-}, {
-    claimId: string;
-    offset?: number | undefined;
-    length?: number | undefined;
-}>;
+}, z.core.$strict>;
 export type CheckpointEvidenceArgs = z.infer<typeof schema>;
 export declare function createCheckpointEvidenceTool(read: (args: CheckpointEvidenceArgs, signal?: AbortSignal) => Promise<unknown>): Tool;
 export {};

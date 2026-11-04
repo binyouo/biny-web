@@ -1,4 +1,4 @@
-import { type Tool } from "./types.js";
+import { type Tool, type ToolContext } from "./types.js";
 export interface BrowserAutomationEndpoint {
     projectId?: string;
     endpoint: string;
@@ -15,5 +15,5 @@ export interface BrowserDomSnapshot {
         selector: string;
     }>;
 }
-export declare function createBrowserTools(endpoint: BrowserAutomationEndpoint): Tool[];
+export declare function createBrowserTools(endpoint: BrowserAutomationEndpoint, workspace?: Pick<ToolContext, "workspaceRoot" | "ignore">): Tool[];
 export declare function requestBrowser(endpoint: BrowserAutomationEndpoint, method: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;

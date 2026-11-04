@@ -1,6 +1,7 @@
+import type { ToolOptimization } from "./toolOptimization.js";
 import { type SessionReplay } from "./replay.js";
 import { type SensitiveValueRedactionOptions } from "../utils/secrets.js";
-import type { SessionContextCheckpoint, SessionContextState, SessionContextUsage, SessionUsage } from "./metadata.js";
+import type { SessionContextCheckpoint, SessionContextState, SessionUsage } from "./metadata.js";
 import type { AttachmentReference } from "../attachments/store.js";
 import type { AgentMessage, ModelRequestMetrics } from "../agent/core/types.js";
 import type { ToolExecutionResultStatus, ToolExecutionState, ToolOutcomeUnknownReason, ToolRetrySafety } from "../tools/types.js";
@@ -56,7 +57,6 @@ type SessionEventPayload = {
     content: string;
     attachments?: AttachmentReference[];
     skills?: string[];
-    contextUsage?: SessionContextUsage;
     contextState?: SessionContextState;
     preparationUsage?: SessionUsage[];
     messageId?: string;
@@ -69,7 +69,6 @@ type SessionEventPayload = {
     metadata?: Record<string, unknown>;
     content: string;
     reasoningContent?: string;
-    reasoningProviderOptions?: Record<string, unknown>;
     reasoningBlocks?: ReasoningBlock[];
     usage?: SessionUsage;
     relatedUsage?: SessionUsage[];
@@ -83,13 +82,13 @@ type SessionEventPayload = {
     time?: string;
 } | {
     type: "tool_call";
+    parentToolCallId?: string;
     tool: string;
     args: unknown;
     toolCallId?: string;
     sequence?: number;
     assistantContent?: string;
     reasoningContent?: string;
-    reasoningProviderOptions?: Record<string, unknown>;
     reasoningBlocks?: ReasoningBlock[];
     auditOnly?: boolean;
     time?: string;
@@ -108,6 +107,8 @@ type SessionEventPayload = {
     time?: string;
 } | {
     type: "tool_result";
+    optimization?: ToolOptimization;
+    modelResult?: unknown;
     tool: string;
     result: unknown;
     toolCallId?: string;
@@ -195,9 +196,9 @@ export declare class SessionRecorder {
     private appendPersistedEvent;
     private prepareAppendStream;
     /** 关键协议事件使用有序屏障，确保 JSONL 已交给文件系统后再推进执行状态。 */
-    recordAndFlush(event: SessionEvent,
+    recordAndFlush(event: SessionEvent, 
     /** 并发后台操作显式传自己的身份，避免临时改写 recorder 的共享上下文。 */
-    runtimeContext?: RuntimeEventContext | undefined,
+    runtimeContext?: RuntimeEventContext | undefined, 
     /** Host-selected response context; never taken from tool data or event fields. */
     resultRedactionOptions?: SensitiveValueRedactionOptions): Promise<SessionEvent>;
     /**
@@ -255,9 +256,9 @@ export declare class SessionRecorder {
 /**
  * 生成新 session 的逻辑 id，同时就是 session 文件的 basename（`<id>.jsonl`）。
  *
- * 格式 `<yyyymmdd-hhmmss>-<rand8>`，与 7 月旧布局同构：时间戳段用本地时间（跟墙上时钟一致，
+ * 格式 `<yyyymmdd-hhmmss>-<rand8>`：时间戳段用本地时间（跟墙上时钟一致，
  * "按时间找会话"才符合直觉，也对齐外部 rollout 的本地时间命名；单机使用时字典序仍按创建
- * 先后排列），8 位 hex 随机段消掉同一秒内的碰撞。catalog/runLedger/claim/resume 只把 id 当
+ * 先后排列），8 位 hex 随机段消掉同一秒内的碰撞。catalog/runtime/claim/resume 只把 id 当
  * 不透明字符串，所以改格式不需要动那 30 处耦合；store 的 `sessionFilePath` 靠"先查重、再落
  * 候选路径"保证 id 与文件名始终一致。
  */

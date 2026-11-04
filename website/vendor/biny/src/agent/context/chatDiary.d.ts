@@ -1,4 +1,3 @@
-import type { SelfReflectionResult } from "./selfReflection.js";
 import type { AgentModel, ModelRequestContext, ModelRequestObserver } from "../core/types.js";
 import type { ModelUsageObserver } from "../../observability/usage.js";
 export interface CompletedChatDiaryEntry {
@@ -23,20 +22,19 @@ export interface ChatDiaryRefreshOptions {
     requestContext?: ModelRequestContext;
 }
 export interface ChatDiaryRefreshResult {
-    reflection?: SelfReflectionResult;
     dateKey: string;
     written: boolean;
     backfilled: number;
     model?: string;
-    reason?: "empty" | "up_to_date";
+    reason?: "empty" | "up_to_date" | "superseded";
 }
 /** 显式日记刷新时补入单轮事实，以 session 和 turn 标识去重。 */
 export declare function appendCompletedChatDiaryEntry(entry: CompletedChatDiaryEntry, options?: {
     configDir?: string;
 }): Promise<string>;
 /**
- * 从全局 session JSONL 补写指定日期缺失的聊天回合。marker 由 writer 做幂等去重，因此
- * 每次日结都可以安全扫描，不需要另建一张“日报已处理”状态表。
+ * 从全局 session JSONL 补写指定日期缺失的聊天回合；每次最多处理 500 个缺失候选。
+ * 已有 marker 不占预算，让后续刷新继续推进；writer 仍在锁内做最终幂等去重。
  */
 export declare function backfillDailyChatDiaryEntries(dateKey: string, options?: {
     configDir?: string;

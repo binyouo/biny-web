@@ -6,23 +6,9 @@ export declare const computerAppSchema: z.ZodObject<{
     revokedAt: z.ZodOptional<z.ZodString>;
     lastUsedAt: z.ZodOptional<z.ZodString>;
     useCount: z.ZodDefault<z.ZodNumber>;
-}, "strict", z.ZodTypeAny, {
-    bundleId: string;
-    appName: string;
-    useCount: number;
-    approvedAt?: string | undefined;
-    revokedAt?: string | undefined;
-    lastUsedAt?: string | undefined;
-}, {
-    bundleId: string;
-    appName: string;
-    approvedAt?: string | undefined;
-    revokedAt?: string | undefined;
-    lastUsedAt?: string | undefined;
-    useCount?: number | undefined;
-}>;
+}, z.core.$strict>;
 export type ComputerAppApproval = z.infer<typeof computerAppSchema>;
-export declare const computerSettingsSchema: z.ZodEffects<z.ZodObject<{
+export declare const computerSettingsSchema: z.ZodObject<{
     enabled: z.ZodDefault<z.ZodBoolean>;
     previewEnabled: z.ZodDefault<z.ZodBoolean>;
     actionLogging: z.ZodDefault<z.ZodBoolean>;
@@ -34,309 +20,339 @@ export declare const computerSettingsSchema: z.ZodEffects<z.ZodObject<{
         revokedAt: z.ZodOptional<z.ZodString>;
         lastUsedAt: z.ZodOptional<z.ZodString>;
         useCount: z.ZodDefault<z.ZodNumber>;
-    }, "strict", z.ZodTypeAny, {
-        bundleId: string;
-        appName: string;
-        useCount: number;
-        approvedAt?: string | undefined;
-        revokedAt?: string | undefined;
-        lastUsedAt?: string | undefined;
-    }, {
-        bundleId: string;
-        appName: string;
-        approvedAt?: string | undefined;
-        revokedAt?: string | undefined;
-        lastUsedAt?: string | undefined;
-        useCount?: number | undefined;
-    }>, "many">>;
-}, "strict", z.ZodTypeAny, {
-    enabled: boolean;
-    previewEnabled: boolean;
-    actionLogging: boolean;
-    strictApproval: boolean;
-    apps: {
-        bundleId: string;
-        appName: string;
-        useCount: number;
-        approvedAt?: string | undefined;
-        revokedAt?: string | undefined;
-        lastUsedAt?: string | undefined;
-    }[];
-}, {
-    enabled?: boolean | undefined;
-    previewEnabled?: boolean | undefined;
-    actionLogging?: boolean | undefined;
-    strictApproval?: boolean | undefined;
-    apps?: {
-        bundleId: string;
-        appName: string;
-        approvedAt?: string | undefined;
-        revokedAt?: string | undefined;
-        lastUsedAt?: string | undefined;
-        useCount?: number | undefined;
-    }[] | undefined;
-}>, {
-    enabled: boolean;
-    previewEnabled: boolean;
-    actionLogging: boolean;
-    strictApproval: boolean;
-    apps: {
-        bundleId: string;
-        appName: string;
-        useCount: number;
-        approvedAt?: string | undefined;
-        revokedAt?: string | undefined;
-        lastUsedAt?: string | undefined;
-    }[];
-}, {
-    enabled?: boolean | undefined;
-    previewEnabled?: boolean | undefined;
-    actionLogging?: boolean | undefined;
-    strictApproval?: boolean | undefined;
-    apps?: {
-        bundleId: string;
-        appName: string;
-        approvedAt?: string | undefined;
-        revokedAt?: string | undefined;
-        lastUsedAt?: string | undefined;
-        useCount?: number | undefined;
-    }[] | undefined;
-}>;
+    }, z.core.$strict>>>;
+}, z.core.$strict>;
 export declare const maxComputerImageBytes: number;
 export declare const windowTargetSchema: z.ZodObject<{
     pid: z.ZodNumber;
     windowId: z.ZodString;
-}, "strict", z.ZodTypeAny, {
-    pid: number;
-    windowId: string;
-}, {
-    pid: number;
-    windowId: string;
-}>;
+}, z.core.$strict>;
 export type WindowTarget = z.infer<typeof windowTargetSchema>;
 export declare const computerListSchema: z.ZodObject<{
     pid: z.ZodOptional<z.ZodNumber>;
     days: z.ZodOptional<z.ZodNumber>;
-}, "strict", z.ZodTypeAny, {
-    pid?: number | undefined;
-    days?: number | undefined;
-}, {
-    pid?: number | undefined;
-    days?: number | undefined;
-}>;
-export declare const computerMirrorSchema: z.ZodEffects<z.ZodObject<{
-    operation: z.ZodEnum<["open", "close", "list"]>;
+}, z.core.$strict>;
+export declare const computerMirrorSchema: z.ZodObject<{
+    operation: z.ZodEnum<{
+        list: "list";
+        open: "open";
+        close: "close";
+    }>;
     pid: z.ZodOptional<z.ZodNumber>;
     windowId: z.ZodOptional<z.ZodString>;
     onMinimize: z.ZodOptional<z.ZodBoolean>;
     all: z.ZodOptional<z.ZodBoolean>;
-}, "strict", z.ZodTypeAny, {
-    operation: "close" | "list" | "open";
-    all?: boolean | undefined;
-    pid?: number | undefined;
-    windowId?: string | undefined;
-    onMinimize?: boolean | undefined;
-}, {
-    operation: "close" | "list" | "open";
-    all?: boolean | undefined;
-    pid?: number | undefined;
-    windowId?: string | undefined;
-    onMinimize?: boolean | undefined;
-}>, {
-    operation: "close" | "list" | "open";
-    all?: boolean | undefined;
-    pid?: number | undefined;
-    windowId?: string | undefined;
-    onMinimize?: boolean | undefined;
-}, {
-    operation: "close" | "list" | "open";
-    all?: boolean | undefined;
-    pid?: number | undefined;
-    windowId?: string | undefined;
-    onMinimize?: boolean | undefined;
-}>;
+}, z.core.$strict>;
 export type ComputerMirrorRequest = z.infer<typeof computerMirrorSchema>;
 /** 观察选项不属于窗口身份；审批与动作目标只使用 pid/windowId。 */
-export declare const windowObserveSchema: z.ZodObject<{
-    pid: z.ZodNumber;
-    windowId: z.ZodString;
-} & {
+export declare const computerWaitSchema: z.ZodObject<{
+    text: z.ZodString;
+    timeoutMs: z.ZodDefault<z.ZodNumber>;
+}, z.core.$strict>;
+export declare const computerObservationOptions: z.ZodObject<{
+    content: z.ZodOptional<z.ZodEnum<{
+        image: "image";
+        full: "full";
+    }>>;
+    waitFor: z.ZodOptional<z.ZodObject<{
+        text: z.ZodString;
+        timeoutMs: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>>;
     maxElements: z.ZodOptional<z.ZodNumber>;
     depth: z.ZodOptional<z.ZodNumber>;
     screenshotMaxWidth: z.ZodOptional<z.ZodNumber>;
     interactiveOnly: z.ZodOptional<z.ZodBoolean>;
-}, "strict", z.ZodTypeAny, {
-    pid: number;
-    windowId: string;
-    maxElements?: number | undefined;
-    depth?: number | undefined;
-    screenshotMaxWidth?: number | undefined;
-    interactiveOnly?: boolean | undefined;
-}, {
-    pid: number;
-    windowId: string;
-    maxElements?: number | undefined;
-    depth?: number | undefined;
-    screenshotMaxWidth?: number | undefined;
-    interactiveOnly?: boolean | undefined;
-}>;
-export type WindowObserve = z.infer<typeof windowObserveSchema>;
-export declare const computerActionSchema: z.ZodEffects<z.ZodObject<{
+}, z.core.$strict>;
+export declare function validateObservationOptions(value: z.infer<typeof computerObservationOptions>, context: z.RefinementCtx): void;
+export declare const windowObserveSchema: z.ZodObject<{
     pid: z.ZodNumber;
     windowId: z.ZodString;
-} & {
-    action: z.ZodEnum<["click", "type_text", "press_key", "scroll", "drag", "perform_secondary_action", "set_value", "select_text"]>;
-    captureId: z.ZodString;
-    delivery: z.ZodDefault<z.ZodEnum<["background", "foreground"]>>;
-    /**
-     * 这一次不要动作指示器。对应参照 CLI 的 `--no-cursor`（"hides the lens for one action"）。
-     * 守护进程侧的字段名就是 `show_cursor`；早先只有守护进程认识它，四个调用层都没接 ——
-     * 能力在、路不通。
-     */
+    content: z.ZodOptional<z.ZodEnum<{
+        image: "image";
+        full: "full";
+    }>>;
+    waitFor: z.ZodOptional<z.ZodObject<{
+        text: z.ZodString;
+        timeoutMs: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strict>>;
+    maxElements: z.ZodOptional<z.ZodNumber>;
+    depth: z.ZodOptional<z.ZodNumber>;
+    screenshotMaxWidth: z.ZodOptional<z.ZodNumber>;
+    interactiveOnly: z.ZodOptional<z.ZodBoolean>;
+}, z.core.$strict>;
+export type WindowObserve = z.infer<typeof windowObserveSchema>;
+export declare const computerActionPayload: z.ZodObject<{
+    action: z.ZodEnum<{
+        click: "click";
+        type_text: "type_text";
+        press_key: "press_key";
+        scroll: "scroll";
+        drag: "drag";
+        perform_secondary_action: "perform_secondary_action";
+        set_value: "set_value";
+        select_text: "select_text";
+    }>;
     showCursor: z.ZodOptional<z.ZodBoolean>;
-    /** physical 先验证整段文本可由当前键盘布局表达；ax 按元素写入。 */
-    inputMethod: z.ZodOptional<z.ZodEnum<["auto", "physical", "unicode", "ax"]>>;
-    button: z.ZodOptional<z.ZodEnum<["left", "right", "middle"]>>;
+    inputMethod: z.ZodOptional<z.ZodEnum<{
+        auto: "auto";
+        physical: "physical";
+        unicode: "unicode";
+        ax: "ax";
+    }>>;
+    button: z.ZodOptional<z.ZodEnum<{
+        left: "left";
+        right: "right";
+        middle: "middle";
+    }>>;
     clickCount: z.ZodOptional<z.ZodNumber>;
-    strategy: z.ZodOptional<z.ZodEnum<["auto", "physical", "ax"]>>;
-    coordinateSpace: z.ZodOptional<z.ZodEnum<["screenshot", "screen"]>>;
+    strategy: z.ZodOptional<z.ZodEnum<{
+        auto: "auto";
+        physical: "physical";
+        ax: "ax";
+    }>>;
+    coordinateSpace: z.ZodOptional<z.ZodEnum<{
+        screenshot: "screenshot";
+        screen: "screen";
+    }>>;
     x: z.ZodOptional<z.ZodNumber>;
     y: z.ZodOptional<z.ZodNumber>;
     text: z.ZodOptional<z.ZodString>;
     key: z.ZodOptional<z.ZodString>;
-    direction: z.ZodOptional<z.ZodEnum<["up", "down", "left", "right"]>>;
+    direction: z.ZodOptional<z.ZodEnum<{
+        left: "left";
+        right: "right";
+        up: "up";
+        down: "down";
+    }>>;
     pages: z.ZodOptional<z.ZodNumber>;
     x1: z.ZodOptional<z.ZodNumber>;
     y1: z.ZodOptional<z.ZodNumber>;
     x2: z.ZodOptional<z.ZodNumber>;
     y2: z.ZodOptional<z.ZodNumber>;
-    value: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNumber, z.ZodBoolean]>>;
+    value: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber, z.ZodBoolean]>>;
+    secondaryAction: z.ZodOptional<z.ZodString>;
     location: z.ZodOptional<z.ZodNumber>;
     length: z.ZodOptional<z.ZodNumber>;
+    matchText: z.ZodOptional<z.ZodString>;
+    prefix: z.ZodOptional<z.ZodString>;
+    suffix: z.ZodOptional<z.ZodString>;
+    selectionType: z.ZodOptional<z.ZodEnum<{
+        text: "text";
+        cursor_before: "cursor_before";
+        cursor_after: "cursor_after";
+    }>>;
     elementToken: z.ZodOptional<z.ZodString>;
-}, "strict", z.ZodTypeAny, {
-    action: "click" | "drag" | "scroll" | "type_text" | "press_key" | "perform_secondary_action" | "set_value" | "select_text";
-    pid: number;
-    windowId: string;
-    captureId: string;
-    delivery: "background" | "foreground";
-    direction?: "left" | "right" | "up" | "down" | undefined;
-    x1?: number | undefined;
-    x2?: number | undefined;
-    x?: number | undefined;
-    y1?: number | undefined;
-    y2?: number | undefined;
-    y?: number | undefined;
-    key?: string | undefined;
-    length?: number | undefined;
-    button?: "middle" | "left" | "right" | undefined;
-    location?: number | undefined;
-    text?: string | undefined;
-    value?: string | number | boolean | undefined;
-    showCursor?: boolean | undefined;
-    inputMethod?: "unicode" | "auto" | "physical" | "ax" | undefined;
-    clickCount?: number | undefined;
-    strategy?: "auto" | "physical" | "ax" | undefined;
-    coordinateSpace?: "screenshot" | "screen" | undefined;
-    pages?: number | undefined;
-    elementToken?: string | undefined;
-}, {
-    action: "click" | "drag" | "scroll" | "type_text" | "press_key" | "perform_secondary_action" | "set_value" | "select_text";
-    pid: number;
-    windowId: string;
-    captureId: string;
-    direction?: "left" | "right" | "up" | "down" | undefined;
-    x1?: number | undefined;
-    x2?: number | undefined;
-    x?: number | undefined;
-    y1?: number | undefined;
-    y2?: number | undefined;
-    y?: number | undefined;
-    key?: string | undefined;
-    length?: number | undefined;
-    button?: "middle" | "left" | "right" | undefined;
-    location?: number | undefined;
-    text?: string | undefined;
-    value?: string | number | boolean | undefined;
-    delivery?: "background" | "foreground" | undefined;
-    showCursor?: boolean | undefined;
-    inputMethod?: "unicode" | "auto" | "physical" | "ax" | undefined;
-    clickCount?: number | undefined;
-    strategy?: "auto" | "physical" | "ax" | undefined;
-    coordinateSpace?: "screenshot" | "screen" | undefined;
-    pages?: number | undefined;
-    elementToken?: string | undefined;
-}>, {
-    action: "click" | "drag" | "scroll" | "type_text" | "press_key" | "perform_secondary_action" | "set_value" | "select_text";
-    pid: number;
-    windowId: string;
-    captureId: string;
-    delivery: "background" | "foreground";
-    direction?: "left" | "right" | "up" | "down" | undefined;
-    x1?: number | undefined;
-    x2?: number | undefined;
-    x?: number | undefined;
-    y1?: number | undefined;
-    y2?: number | undefined;
-    y?: number | undefined;
-    key?: string | undefined;
-    length?: number | undefined;
-    button?: "middle" | "left" | "right" | undefined;
-    location?: number | undefined;
-    text?: string | undefined;
-    value?: string | number | boolean | undefined;
-    showCursor?: boolean | undefined;
-    inputMethod?: "unicode" | "auto" | "physical" | "ax" | undefined;
-    clickCount?: number | undefined;
-    strategy?: "auto" | "physical" | "ax" | undefined;
-    coordinateSpace?: "screenshot" | "screen" | undefined;
-    pages?: number | undefined;
-    elementToken?: string | undefined;
-}, {
-    action: "click" | "drag" | "scroll" | "type_text" | "press_key" | "perform_secondary_action" | "set_value" | "select_text";
-    pid: number;
-    windowId: string;
-    captureId: string;
-    direction?: "left" | "right" | "up" | "down" | undefined;
-    x1?: number | undefined;
-    x2?: number | undefined;
-    x?: number | undefined;
-    y1?: number | undefined;
-    y2?: number | undefined;
-    y?: number | undefined;
-    key?: string | undefined;
-    length?: number | undefined;
-    button?: "middle" | "left" | "right" | undefined;
-    location?: number | undefined;
-    text?: string | undefined;
-    value?: string | number | boolean | undefined;
-    delivery?: "background" | "foreground" | undefined;
-    showCursor?: boolean | undefined;
-    inputMethod?: "unicode" | "auto" | "physical" | "ax" | undefined;
-    clickCount?: number | undefined;
-    strategy?: "auto" | "physical" | "ax" | undefined;
-    coordinateSpace?: "screenshot" | "screen" | undefined;
-    pages?: number | undefined;
-    elementToken?: string | undefined;
-}>;
+}, z.core.$strict>;
+export declare function validateComputerAction(value: z.infer<typeof computerActionPayload>, context: z.RefinementCtx): void;
+export declare const computerActionPayloadSchema: z.ZodObject<{
+    action: z.ZodEnum<{
+        click: "click";
+        type_text: "type_text";
+        press_key: "press_key";
+        scroll: "scroll";
+        drag: "drag";
+        perform_secondary_action: "perform_secondary_action";
+        set_value: "set_value";
+        select_text: "select_text";
+    }>;
+    showCursor: z.ZodOptional<z.ZodBoolean>;
+    inputMethod: z.ZodOptional<z.ZodEnum<{
+        auto: "auto";
+        physical: "physical";
+        unicode: "unicode";
+        ax: "ax";
+    }>>;
+    button: z.ZodOptional<z.ZodEnum<{
+        left: "left";
+        right: "right";
+        middle: "middle";
+    }>>;
+    clickCount: z.ZodOptional<z.ZodNumber>;
+    strategy: z.ZodOptional<z.ZodEnum<{
+        auto: "auto";
+        physical: "physical";
+        ax: "ax";
+    }>>;
+    coordinateSpace: z.ZodOptional<z.ZodEnum<{
+        screenshot: "screenshot";
+        screen: "screen";
+    }>>;
+    x: z.ZodOptional<z.ZodNumber>;
+    y: z.ZodOptional<z.ZodNumber>;
+    text: z.ZodOptional<z.ZodString>;
+    key: z.ZodOptional<z.ZodString>;
+    direction: z.ZodOptional<z.ZodEnum<{
+        left: "left";
+        right: "right";
+        up: "up";
+        down: "down";
+    }>>;
+    pages: z.ZodOptional<z.ZodNumber>;
+    x1: z.ZodOptional<z.ZodNumber>;
+    y1: z.ZodOptional<z.ZodNumber>;
+    x2: z.ZodOptional<z.ZodNumber>;
+    y2: z.ZodOptional<z.ZodNumber>;
+    value: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber, z.ZodBoolean]>>;
+    secondaryAction: z.ZodOptional<z.ZodString>;
+    location: z.ZodOptional<z.ZodNumber>;
+    length: z.ZodOptional<z.ZodNumber>;
+    matchText: z.ZodOptional<z.ZodString>;
+    prefix: z.ZodOptional<z.ZodString>;
+    suffix: z.ZodOptional<z.ZodString>;
+    selectionType: z.ZodOptional<z.ZodEnum<{
+        text: "text";
+        cursor_before: "cursor_before";
+        cursor_after: "cursor_after";
+    }>>;
+    elementToken: z.ZodOptional<z.ZodString>;
+}, z.core.$strict>;
+export declare const computerActionSchema: z.ZodObject<{
+    action: z.ZodEnum<{
+        click: "click";
+        type_text: "type_text";
+        press_key: "press_key";
+        scroll: "scroll";
+        drag: "drag";
+        perform_secondary_action: "perform_secondary_action";
+        set_value: "set_value";
+        select_text: "select_text";
+    }>;
+    showCursor: z.ZodOptional<z.ZodBoolean>;
+    inputMethod: z.ZodOptional<z.ZodEnum<{
+        auto: "auto";
+        physical: "physical";
+        unicode: "unicode";
+        ax: "ax";
+    }>>;
+    button: z.ZodOptional<z.ZodEnum<{
+        left: "left";
+        right: "right";
+        middle: "middle";
+    }>>;
+    clickCount: z.ZodOptional<z.ZodNumber>;
+    strategy: z.ZodOptional<z.ZodEnum<{
+        auto: "auto";
+        physical: "physical";
+        ax: "ax";
+    }>>;
+    coordinateSpace: z.ZodOptional<z.ZodEnum<{
+        screenshot: "screenshot";
+        screen: "screen";
+    }>>;
+    x: z.ZodOptional<z.ZodNumber>;
+    y: z.ZodOptional<z.ZodNumber>;
+    text: z.ZodOptional<z.ZodString>;
+    key: z.ZodOptional<z.ZodString>;
+    direction: z.ZodOptional<z.ZodEnum<{
+        left: "left";
+        right: "right";
+        up: "up";
+        down: "down";
+    }>>;
+    pages: z.ZodOptional<z.ZodNumber>;
+    x1: z.ZodOptional<z.ZodNumber>;
+    y1: z.ZodOptional<z.ZodNumber>;
+    x2: z.ZodOptional<z.ZodNumber>;
+    y2: z.ZodOptional<z.ZodNumber>;
+    value: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber, z.ZodBoolean]>>;
+    secondaryAction: z.ZodOptional<z.ZodString>;
+    location: z.ZodOptional<z.ZodNumber>;
+    length: z.ZodOptional<z.ZodNumber>;
+    matchText: z.ZodOptional<z.ZodString>;
+    prefix: z.ZodOptional<z.ZodString>;
+    suffix: z.ZodOptional<z.ZodString>;
+    selectionType: z.ZodOptional<z.ZodEnum<{
+        text: "text";
+        cursor_before: "cursor_before";
+        cursor_after: "cursor_after";
+    }>>;
+    elementToken: z.ZodOptional<z.ZodString>;
+    captureId: z.ZodString;
+    pid: z.ZodNumber;
+    windowId: z.ZodString;
+}, z.core.$strict>;
 export type ComputerAction = z.infer<typeof computerActionSchema>;
+export declare const computerSequenceSchema: z.ZodObject<{
+    pid: z.ZodNumber;
+    windowId: z.ZodString;
+    captureId: z.ZodString;
+    actions: z.ZodArray<z.ZodObject<{
+        length: z.ZodOptional<z.ZodNumber>;
+        key: z.ZodOptional<z.ZodString>;
+        value: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber, z.ZodBoolean]>>;
+        text: z.ZodOptional<z.ZodString>;
+        action: z.ZodEnum<{
+            click: "click";
+            type_text: "type_text";
+            press_key: "press_key";
+            scroll: "scroll";
+            drag: "drag";
+            perform_secondary_action: "perform_secondary_action";
+            set_value: "set_value";
+            select_text: "select_text";
+        }>;
+        showCursor: z.ZodOptional<z.ZodBoolean>;
+        inputMethod: z.ZodOptional<z.ZodEnum<{
+            auto: "auto";
+            physical: "physical";
+            unicode: "unicode";
+            ax: "ax";
+        }>>;
+        button: z.ZodOptional<z.ZodEnum<{
+            left: "left";
+            right: "right";
+            middle: "middle";
+        }>>;
+        clickCount: z.ZodOptional<z.ZodNumber>;
+        strategy: z.ZodOptional<z.ZodEnum<{
+            auto: "auto";
+            physical: "physical";
+            ax: "ax";
+        }>>;
+        coordinateSpace: z.ZodOptional<z.ZodEnum<{
+            screenshot: "screenshot";
+            screen: "screen";
+        }>>;
+        x: z.ZodOptional<z.ZodNumber>;
+        y: z.ZodOptional<z.ZodNumber>;
+        direction: z.ZodOptional<z.ZodEnum<{
+            left: "left";
+            right: "right";
+            up: "up";
+            down: "down";
+        }>>;
+        pages: z.ZodOptional<z.ZodNumber>;
+        x1: z.ZodOptional<z.ZodNumber>;
+        y1: z.ZodOptional<z.ZodNumber>;
+        x2: z.ZodOptional<z.ZodNumber>;
+        y2: z.ZodOptional<z.ZodNumber>;
+        secondaryAction: z.ZodOptional<z.ZodString>;
+        location: z.ZodOptional<z.ZodNumber>;
+        matchText: z.ZodOptional<z.ZodString>;
+        prefix: z.ZodOptional<z.ZodString>;
+        suffix: z.ZodOptional<z.ZodString>;
+        selectionType: z.ZodOptional<z.ZodEnum<{
+            text: "text";
+            cursor_before: "cursor_before";
+            cursor_after: "cursor_after";
+        }>>;
+        elementToken: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>;
+}, z.core.$strict>;
+export type ComputerSequence = z.infer<typeof computerSequenceSchema>;
 export declare const computerImageSchema: z.ZodObject<{
-    mimeType: z.ZodEnum<["image/png", "image/jpeg"]>;
+    mimeType: z.ZodEnum<{
+        "image/png": "image/png";
+        "image/jpeg": "image/jpeg";
+    }>;
     dataBase64: z.ZodString;
-}, "strict", z.ZodTypeAny, {
-    mimeType: "image/png" | "image/jpeg";
-    dataBase64: string;
-}, {
-    mimeType: "image/png" | "image/jpeg";
-    dataBase64: string;
-}>;
+}, z.core.$strict>;
 export type ComputerImage = z.infer<typeof computerImageSchema>;
 export type ComputerState = "disabled" | "ready" | "paused" | "taken-over" | "unknown";
 export interface ComputerStatus {
     state: ComputerState;
     owner?: string;
     preview: boolean;
-    foregroundAllowed: boolean;
     actionLogging?: boolean;
     lastOutcome: "not-dispatched" | "completed" | "refused" | "unverified" | "unknown";
     diagnostic?: string;
@@ -384,18 +400,31 @@ export interface ComputerPreview {
     image: ComputerImage;
     target: WindowTarget;
     capturedAt: number;
+    cursor?: {
+        x: number;
+        y: number;
+        expiresAt: number;
+        eventId?: number;
+        action?: "click" | "drag" | "type" | "scroll";
+        symbol?: string;
+        image?: ComputerImage;
+        hotspot?: {
+            x: number;
+            y: number;
+        };
+    };
 }
 export type ComputerControl = "pause" | "resume" | "takeover" | "stop";
 export interface ComputerDesktopApi {
     onNavigate?(listener: (target: {
         sessionId?: string;
         projectId?: string;
+        revealBrowser?: boolean;
     }) => void): () => void;
     status(): Promise<ComputerStatus>;
     enable(): Promise<ComputerStatus>;
     control(control: ComputerControl): Promise<ComputerStatus>;
     preview(enabled: boolean): Promise<ComputerStatus>;
-    foreground(enabled: boolean): Promise<ComputerStatus>;
     logging(enabled: boolean): Promise<ComputerStatus>;
     diagnostics(): Promise<ComputerDiagnostics>;
     requestAccessibility(): Promise<ComputerDiagnostics>;
@@ -413,7 +442,6 @@ export declare const computerIpc: {
     readonly enable: "desktop:computer:enable";
     readonly control: "desktop:computer:control";
     readonly preview: "desktop:computer:preview";
-    readonly foreground: "desktop:computer:foreground";
     readonly logging: "desktop:computer:logging";
     readonly diagnostics: "desktop:computer:diagnostics";
     readonly accessibility: "desktop:computer:accessibility";

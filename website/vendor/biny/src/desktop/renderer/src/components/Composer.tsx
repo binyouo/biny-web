@@ -6,7 +6,7 @@ import type { LocalReferenceResult } from "../../../../session/localReferences.j
  * Agent 执行仍沿用原有数据流。输入与补全的局部交互由 PromptInput 负责。
  */
 import { useTooltip } from "@astryxdesign/core/Tooltip";
-import { memo, useCallback, useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ModelRuntimeInfo } from "../../../../llm/ModelManager.js";
 import type { AgentCapabilitySelection } from "../../../../agent/capabilitySelection.js";
 import type { ModelChoice } from "../../../../llm/ModelManager.js";
@@ -48,11 +48,17 @@ interface ComposerProps {
   externalAgent?: boolean;
   ref?: React.Ref<ComposerHandle>;
   project?: DesktopProject;
+  /** 未发送草稿的附件与引用目标；能力目录和模型仍使用工作区项目。 */
+  draftProjectId?: string;
   drafts: Map<string, ComposerDraftState>;
   draftKey: string;
+  /** 导航引用可早于 React 卸载更新，派发前同步确认提交仍属于当前聊天。 */
+  isSubmissionCurrent?(): boolean;
   runtimeInfo?: ModelRuntimeInfo;
   models: ModelChoice[];
   connections?: readonly DesktopModelConnection[];
+  fastMode?: boolean;
+  onChangeFastMode(fastMode: boolean): void;
   /** 已解析好的上下文用量；取不到真实数字时为空，此时不展示用量。 */
   contextUsage?: ContextUsage;
   memoryState: ComposerMemoryState;
@@ -75,7 +81,8 @@ interface ComposerProps {
   capabilityDefaults: DesktopCapabilityDefaults;
   skills: DesktopSkillCatalogEntry[];
   toolCatalog: DesktopToolCatalogEntry[];
-  onSend(input: string, attachments: DesktopAttachment[], delivery?: "steer" | "queue", idempotencyKey?: string, capabilitySelection?: AgentCapabilitySelection): Promise<void>;
+  onPrepare?(): Promise<void>;
+  onSend(input: string, attachments: DesktopAttachment[], delivery?: "steer" | "queue", idempotencyKey?: string, capabilitySelection?: AgentCapabilitySelection, fastMode?: boolean): Promise<void>;
   onMutateQueuedMessage(action: "update" | "remove" | "move" | "steer" | "send-all", mutation?: { messageId?: string; input?: string; targetMessageId?: string; placeAfter?: boolean }): Promise<void>;
   /** 正在编辑的历史消息；nonce 变化时把 value 回填进输入框并聚焦。 */
   editingMessage?: { nonce: number; value: string };
@@ -113,17 +120,22 @@ function selectionFromDefaults(defaults: DesktopCapabilityDefaults): AgentCapabi
 export const Composer = memo(function Composer({
   ref,
   project,
+  draftProjectId = project?.id,
   drafts,
   draftKey,
+  isSubmissionCurrent,
   runtimeInfo,
   models,
   connections,
+  fastMode = false,
+  onChangeFastMode,
   contextUsage,
   memoryState,
   memoryToggleBusy,
   memoryToggleDisabled,
   memoryToggleDisabledReason,
   running,
+  runtimeBusy,
   compacting = false,
   recovery,
   onResume,
@@ -138,6 +150,7 @@ export const Composer = memo(function Composer({
   capabilityDefaults,
   skills,
   toolCatalog,
+  onPrepare,
   onSend,
   onMutateQueuedMessage,
   editingMessage,
@@ -163,6 +176,8 @@ export const Composer = memo(function Composer({
   const snapshot = useSyncExternalStore(draftState.subscribe, draftState.getSnapshot, draftState.getSnapshot);
   const [editDraft, setEditDraft] = useState<ReferenceDraft>({ value: "", tokens: [] });
   const editDraftRef = useRef(editDraft);
+  const editingMessageRef = useRef(editingMessage);
+  useLayoutEffect(() => { editingMessageRef.current = editingMessage; }, [editingMessage]);
   const editHistory = useRef<ReferenceDraftTransition[]>([]);
   const editing = editingMessage !== undefined;
   const input = editing ? editDraft.value : snapshot.draft.value;
@@ -210,6 +225,9 @@ export const Composer = memo(function Composer({
   const [stopPending, setStopPending] = useState(false);
   const [optimisticModel, setOptimisticModel] = useState<PendingModelSelection>();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const cancelReferenceFocusRef = useRef<(() => void) | undefined>(undefined);
+  // 新编辑目标与卸载都终止旧输入目标的下一帧副作用。
+  useLayoutEffect(() => () => cancelReferenceFocusRef.current?.(), [editingMessage?.nonce]);
   // 侧栏引用只追加到当前草稿，不经过回填或提交路径。
   useImperativeHandle(ref, () => ({
     async submitSuggestion(text) {
@@ -227,10 +245,32 @@ export const Composer = memo(function Composer({
       const position = value.length;
       const next = insertDraftReference(value, { start: position, end: position, query: "" }, reference, current.tokens);
       rememberDraft({ value: next.value, tokens: next.tokens });
-      window.requestAnimationFrame(() => {
-        const input = inputRef.current;
-        input?.focus();
-        input?.setSelectionRange(next.cursor, next.cursor);
+      // 内容已经追加；后来的输入意图只撤销下一帧的聚焦和光标移动。
+      cancelReferenceFocusRef.current?.();
+      const input = inputRef.current;
+      if (!input) return;
+      const ownerDocument = input.ownerDocument;
+      const ownerWindow = ownerDocument.defaultView;
+      const intentEvents = ["pointerdown", "keydown", "input", "compositionstart", "focusin"] as const;
+      const scheduled: { frame?: number } = {};
+      const cancel = (): void => {
+        if (cancelReferenceFocusRef.current !== cancel) return;
+        cancelReferenceFocusRef.current = undefined;
+        if (scheduled.frame !== undefined) window.cancelAnimationFrame(scheduled.frame);
+        for (const event of intentEvents) ownerDocument.removeEventListener(event, cancel, true);
+        ownerWindow?.removeEventListener("blur", cancel);
+      };
+      cancelReferenceFocusRef.current = cancel;
+      // 捕获阶段也能观察被输入框补全菜单 stopPropagation 的按键。
+      // 不监听 select/selectionchange：受控 value 提交本身也可能发出它们。
+      for (const event of intentEvents) ownerDocument.addEventListener(event, cancel, true);
+      ownerWindow?.addEventListener("blur", cancel);
+      scheduled.frame = window.requestAnimationFrame(() => {
+        if (cancelReferenceFocusRef.current !== cancel) return;
+        cancel();
+        if (inputRef.current !== input || !input.isConnected || input.disabled || input.closest("[inert]")) return;
+        input.focus();
+        input.setSelectionRange(next.cursor, next.cursor);
       });
     }
   }));
@@ -333,12 +373,16 @@ export const Composer = memo(function Composer({
       submitFlightRef.current = true;
       setBusy(true);
       try {
+        await onPrepare?.();
+        if (!mounted.current || isSubmissionCurrent?.() === false || editingMessageRef.current !== editingMessage) return;
         clearHistory();
         setDraft({ value: "", tokens: [] });
         await onSubmitEdit(value);
       } catch (submitError) {
-        setDraft(draft);
-        if (mounted.current) onSubmitError(errorMessage(submitError));
+        if (mounted.current && editingMessageRef.current === editingMessage) {
+          setDraft(draft);
+          onSubmitError(errorMessage(submitError));
+        }
       } finally {
         setBusy(false);
         submitFlightRef.current = false;
@@ -362,13 +406,19 @@ export const Composer = memo(function Composer({
           return;
         }
       }
+      // 模型保存属于 App，可跨会话继续；尚未派发的输入只属于原 Composer。
+      // 导航卸载后保留原草稿，不把迟到的提交交给新会话的动态回调。
+      if (!mounted.current || isSubmissionCurrent?.() === false) return;
       const [slashName] = value.split(/\s+/, 1);
       const slashCommand = DESKTOP_SLASH_COMMANDS.find((command) => command.name === slashName);
+      if (sessionWriterConflict) return;
+      try { await onPrepare?.(); }
+      catch (error) { if (mounted.current) onSubmitError(errorMessage(error)); return; }
+      if (!mounted.current || isSubmissionCurrent?.() === false) return;
       if (!resume && slashCommand && (value === slashCommand.name || slashCommand.acceptsArgs)) {
         await runSlash(value, suggestion === undefined);
         return;
       }
-      if (sessionWriterConflict) return;
       const sentHistory = draftState.getSnapshot().history;
       setBusy(true);
       try {
@@ -386,7 +436,7 @@ export const Composer = memo(function Composer({
           if (!recovery?.canContinue) throw new Error(recovery?.message ?? "当前任务无法继续。");
           await onResume();
         } else {
-          await onSend(value, sentAttachments, delivery, globalThis.crypto.randomUUID(), capabilitySelection);
+          await onSend(value, sentAttachments, delivery, globalThis.crypto.randomUUID(), capabilitySelection, fastMode);
         }
       } catch (submitError) {
         if (suggestion === undefined) draftState.update({ draft: originalDraft, attachments, history: sentHistory });
@@ -436,15 +486,26 @@ export const Composer = memo(function Composer({
       }));
       setPendingAttachments((current) => [...current, ...uploadItems.map((item) => item.pending)]);
       const results = await Promise.all(uploadItems.map(async ({ file, pending }) => {
+        let unsubscribe = (): void => {};
         try {
-          const saved = await onSaveAttachment(file);
-          if (!draftState.getSnapshot().pendingAttachments.some((item) => item.id === pending.id)) return { pending };
+          // 移除附件只结束此草稿的等待；底层保存可继续，但不能占住下一次操作。
+          const canceled = new Promise<undefined>((resolve) => {
+            const checkCanceled = (): void => {
+              if (!draftState.getSnapshot().pendingAttachments.some((item) => item.id === pending.id)) resolve(undefined);
+            };
+            unsubscribe = draftState.subscribe(checkCanceled);
+            checkCanceled();
+          });
+          const saved = await Promise.race([onSaveAttachment(file), canceled]);
+          if (!saved || !draftState.getSnapshot().pendingAttachments.some((item) => item.id === pending.id)) return { pending };
           return { pending, saved };
         } catch (uploadError) {
           if (!draftState.getSnapshot().pendingAttachments.some((item) => item.id === pending.id)) return { pending };
           const message = errorMessage(uploadError);
           setPendingAttachments((current) => current.map((item) => item.id === pending.id ? { ...item, error: message, status: "error" } : item));
           return { error: message, pending };
+        } finally {
+          unsubscribe();
         }
       }));
       const activeResults = results.filter((result) => draftState.getSnapshot().pendingAttachments.some((item) => item.id === result.pending.id));
@@ -491,6 +552,7 @@ export const Composer = memo(function Composer({
     )
     : undefined;
   const toolsSupported = selectedModel?.supportsTools !== false;
+  const fastModeSupported = selectedModel?.capabilities?.serviceTiers?.includes("priority") === true;
   const modelName = selectedModel?.displayName ?? runtimeInfo?.modelLabel ?? "未配置模型";
   const startModelSwitch = (alias: string, thinking: ThinkingSelection): void => {
     const requestId = modelSwitchRequestRef.current + 1;
@@ -628,7 +690,7 @@ export const Composer = memo(function Composer({
         {attachmentCount ? (
           <div className="biny-prompt-attachments">
             <AttachmentList
-              projectId={project?.id ?? ""}
+              projectId={draftProjectId ?? ""}
               attachments={attachments}
               onRemove={(index) => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
               onRemovePending={(id) => {
@@ -640,7 +702,7 @@ export const Composer = memo(function Composer({
         ) : null}
         <PromptInput
           inputRef={inputRef}
-          projectId={project?.id}
+          projectId={draftProjectId}
           value={input}
           onChange={changeDraft}
           onReferenceChange={(value, tokens) => rememberDraft({ value, tokens })}
@@ -757,6 +819,20 @@ export const Composer = memo(function Composer({
                 thinkingLevels={thinkingLevels}
               />
             </div>
+            {fastModeSupported ? (
+              <ComposerActionButton
+                aria-pressed={fastMode}
+                className="biny-model-pill"
+                data-fast-mode={fastMode ? "enabled" : "disabled"}
+                disabled={running || runtimeBusy || modelSwitchPending}
+                active={fastMode}
+                label="快速"
+                onClick={() => onChangeFastMode(!fastMode)}
+                tooltip={fastMode ? "使用优先服务档位" : "启用优先服务档位"}
+              >
+                快速
+              </ComposerActionButton>
+            ) : null}
           </div>
           <div className="biny-composer-footer-end">
             <div className="composer-menu-anchor">
@@ -775,14 +851,14 @@ export const Composer = memo(function Composer({
                   ? undefined
                   : memoryState === "enabled" ? "关闭聊天记忆" : "开启聊天记忆"}
               >
-                <Icon name={memoryState === "unknown" || memoryState === "enabled" ? "brain" : "brain-off"} size={20} />
+                <Icon name={memoryState === "unknown" || memoryState === "enabled" ? "memory" : "memory-off"} size={20} />
               </ComposerActionButton>
             </div>
             {usage ? (
               <>
                 <span
                   aria-describedby={contextUsageTooltip.describedBy}
-                  aria-label={`上下文已使用 ${usage.percent}%`}
+                  aria-label={usage.contextWindowIsFallback ? `模型容量未知，保守预算已使用 ${usage.percent}%` : `上下文已使用 ${usage.percent}%`}
                   className="context-usage"
                   ref={contextUsageTooltip.ref}
                   role="status"
@@ -792,13 +868,13 @@ export const Composer = memo(function Composer({
                     <circle className="context-usage-ring-track" cx="10" cy="10" r="7.5" />
                     <circle className="context-usage-ring-fill" cx="10" cy="10" r="7.5" pathLength="100" strokeDasharray={`${usage.fillPercent} 100`} />
                   </svg>
-                  <span>{usage.percent}%</span>
+                  <span>{usage.contextWindowIsFallback ? "≈ " : ""}{usage.percent}%</span>
                 </span>
                 {contextUsageTooltip.renderTooltip(
                   <span className="context-usage-tip">
                     <span className="context-usage-tip-heading">
-                      <strong>上下文容量</strong>
-                      <span>{usage.estimated ? "≈ " : ""}{usage.compactUsed} / {usage.compactMax} <span>({usage.percent}%)</span></span>
+                      <strong>{usage.contextWindowIsFallback ? "上下文容量未知" : "上下文容量"}</strong>
+                      <span title={usage.contextWindowIsFallback ? `最近请求输入 ${usage.used} / 保守预算 ${usage.max} tokens` : `最近请求输入 ${usage.used} / ${usage.max} tokens`}>{usage.estimated ? "≈ " : ""}{usage.compactUsed} / {usage.compactMax} <span>({usage.percent}%)</span></span>
                     </span>
                     <span className="context-usage-bar" aria-label={`已用 ${usage.used} / ${usage.max} tokens`}>
                       {usage.categories.length ? usage.categories.map((category) => (
@@ -814,8 +890,8 @@ export const Composer = memo(function Composer({
                       ))}
                     </span>
                     <span className="context-usage-note">
-                      {usage.categories.length ? "分类占已用上下文，按发送内容估算" : "发送消息后更新上下文组成"}
-                      {usage.contextWindowIsFallback ? " · 容量为估算值" : ""}
+                      {usage.categories.length ? "最近请求输入；分类按发送内容估算" : "发送消息后更新上下文组成"}
+                      {usage.contextWindowIsFallback ? " · 按保守预算估算" : ""}
                     </span>
                     <span className="context-usage-row context-usage-cache"><span>平均缓存命中率</span><strong>{usage.cacheHitRate}</strong></span>
                   </span>

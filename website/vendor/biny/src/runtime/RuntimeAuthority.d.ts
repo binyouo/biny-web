@@ -80,7 +80,7 @@ export interface RuntimeContinuationClaim {
 }
 export interface RuntimeAuthorityOptions {
     workspaceId?: string;
-    backfillLegacySessions?: boolean;
+    reconcileSessions?: boolean;
 }
 export interface RuntimeEventAppendInput {
     eventId?: string;
@@ -165,6 +165,9 @@ export declare class RuntimeEventAuthority implements RuntimeEventSink {
      */
     reconcileRunFromSession(runId: string): Promise<RuntimeRunRecord | undefined>;
     listRuns(options?: RuntimeRunListOptions): RuntimeRunPage;
+    /** 可见会话的最新运行；只读查询不修复或猜测失联进程的终态。 */
+    latestSessionRuns(sessionIds: readonly string[]): Map<string, RuntimeRunRecord>;
+    static readLatestSessionRuns(persistenceRoot: string, sessionIds: readonly string[]): Promise<Map<string, RuntimeRunRecord>>;
     schemaRevision(): number;
     close(): void;
     /** 将变化过的 JSONL 事实幂等投影到 authority，修复进程崩溃留下的缺口。 */
@@ -176,8 +179,8 @@ export declare class RuntimeEventAuthority implements RuntimeEventSink {
     /** Reading a valid existing index must not acquire a write lock. */
     private hasTaskAttemptIndex;
     private createSessionGoalSchema;
-    private hasColumn;
     private appendEventInTransaction;
+    private rethrowEventSequenceConflict;
     private readRun;
     private readEventById;
     private requireRun;

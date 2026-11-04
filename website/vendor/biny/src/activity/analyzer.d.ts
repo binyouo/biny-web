@@ -117,8 +117,10 @@ export declare function buildActivityReport(deps: ActivityAnalyzerDeps, date: st
     force?: boolean;
     skeletonOnly?: boolean;
 }): Promise<ActivityReportResult>;
-/** 日报和日结保存在同一 SQLite 行，叙事成功后可以用最终正文覆盖骨架。 */
-export declare function persistActivityReport(store: ActivityStore, result: ActivityReportResult, now?: Date): void;
+/** 失败退回原骨架前只核对所有权，不刷新缓存、时间戳或 generation。 */
+export declare function isActivityReportCurrent(store: ActivityStore, source: ActivityReportResult): boolean;
+/** 日报和日结保存在同一 SQLite 行；迟到叙事不得撤销日结刷新或覆盖较新的日报。 */
+export declare function persistActivityReport(store: ActivityStore, result: ActivityReportResult, now?: Date, source?: ActivityReportResult): boolean;
 /**
  * 把日报结果和未完成原因渲染成工具/CLI 都能直接输出的文本。
  * 这里仅输出已经选定的骨架或叙事，避免不同入口再改写一次。

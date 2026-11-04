@@ -47,13 +47,17 @@ export interface ApprovedFileSnapshot {
 export interface ToolExecutionContext {
     /** Host-selected discovery surface; tool arguments cannot widen Code Mode's catalog. */
     toolDiscoveryNames?: ReadonlySet<string>;
+    /** Host-admitted ordinary tools may be discovered for a later model step, never invoked by the VM. */
+    toolDiscoveryModelNames?: ReadonlySet<string>;
     toolDiscoveryNamespace?: string;
     prepareToolDiscovery?: (query?: string, signal?: AbortSignal) => Promise<{
         pending: string[];
         timedOut: boolean;
     }>;
-    /** 脚本子调用保留 MCP 内容块与结构化结果，由执行边界选择，模型参数不能设置。 */
+    /** MCP 结果适配及脚本子调用保留协议回执；执行边界选择，模型参数不能设置。 */
     mcpResultMode?: "envelope";
+    /** 仅由运行时绑定的本地电脑桥接租约，不从工具参数接收。 */
+    computerMcpLeaseId?: string;
     /** 当前审批权威的显式路径禁令；命令子进程必须通过系统沙箱执行这些限制。 */
     deniedPaths?: readonly string[];
     toolCallId: string;
@@ -104,6 +108,13 @@ export interface RunnableToolExecution<TResult = unknown> {
     description?: string;
     retrySafety?: ToolRetrySafety;
     approvalRule: string;
+    /** Adapter-owned protocol outcome and projection, applied after durable execution. */
+    interpretResult?(result: TResult, context: {
+        script?: boolean;
+    }): {
+        result: unknown;
+        errorMessage?: string;
+    };
     execute(context: ToolExecutionContext): Promise<TResult>;
 }
 export type ToolExecution<TResult = unknown> = RunnableToolExecution<TResult> | {
@@ -120,10 +131,15 @@ export interface Tool<TArgs = unknown, TResult = unknown> {
     promptGuidelines?: string[];
     parameters: JsonObjectSchema;
     outputSchema?: JsonSchema;
-    schema: z.ZodType<TArgs, z.ZodTypeDef, unknown>;
+    schema: z.ZodType<TArgs, unknown>;
     /** 暴露控制声明与发现入口，不替代权限或脚本准入检查；省略时为 direct。 */
     exposure?: ToolExposure;
     namespace?: ToolNamespace;
+    /** Original remote identity for MCP tools; local tool names may be normalized or hashed. */
+    mcpIdentity?: {
+        serverName: string;
+        toolName: string;
+    };
     source?: ToolSource;
     capability?: string;
     risk?: ToolRisk;

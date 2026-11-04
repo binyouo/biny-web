@@ -21,7 +21,7 @@ pnpm build
 pnpm preview
 ```
 
-网站源码由 `biny-web` 仓库维护。`vendor/biny/` 保存交互演示使用的客户端、共享模块及类型依赖快照；仅用于类型检查的后端模块保留 `.d.ts`，不携带执行实现。模块引用均在本仓库内，版本元信息位于 `vendor/biny/package.json`。更新演示快照时，需要同步依赖并运行完整网站测试和构建。
+网站源码由 `biny-web` 仓库维护。`vendor/biny/` 保存交互演示使用的客户端、共享模块及类型依赖快照；仅用于类型检查的后端模块保留 `.d.ts`，不携带执行实现。模块引用均在本仓库内，版本元信息位于 `vendor/biny/package.json`。当前快照对齐客户端 `0.0.1`（git `v0.0.1-220-gfad8a9fa`）。更新演示快照时，需要同步依赖并运行完整网站测试和构建。
 
 ## 页面与职责
 
@@ -80,7 +80,7 @@ tests/                    文档搜索、路径、下载目录与演示播放与
 
 首页在 iframe 中加载 `client-demo.html`。入口安装内存中的 `window.biny` 数据适配器，然后挂载 `vendor/biny/src/desktop/renderer/src/App.tsx`，使用真实 App、Sidebar、Composer、消息时间线、菜单、权限卡和完整样式入口。官网样式不会进入 iframe。
 
-演示采用深色 `vscode_dark`、系统字体 15px、250px 侧栏、372px 文件面板，以及 1353×828 的窗口画布。嵌入区域整体等比缩放；“放大查看”扩大展示区域，不改写桌面端的内部布局。macOS 原生窗口控制点由少量网页样式补齐，仅作外观展示。
+演示采用深色主题、系统字体 15px、250px 侧栏、372px 文件面板，以及 1353×828 的窗口画布。嵌入区域整体等比缩放；“放大查看”扩大展示区域，不改写桌面端的内部布局。macOS 原生窗口控制点由少量网页样式补齐，仅作外观展示。
 
 `desktopDemo.ts` 将预置场景转为 Desktop 文档和运行事件，复用运行状态归约与权限确认规则。访客可以切换会话、重播、快进、停止、展开工具结果、使用原始模型和权限菜单。快进停在待批准的操作；高风险操作要求完整 `yes`；拒绝后停止后续脚本。重播会取消旧回合并等到新会话选中后才继续发送事件。
 
@@ -113,6 +113,6 @@ tests/                    文档搜索、路径、下载目录与演示播放与
 人工检查首页演示、导航、主题、文档搜索、目录锚点与上下篇；在窄屏检查移动菜单和文档目录；在下载页检查失败重试和代码复制反馈。演示需检查会话切换、工具展开、停止、快进停在权限请求、允许/拒绝、重播、输入框菜单和错误反馈；检查放大/收起、键盘焦点、整体缩放，以及向上阅读时的滚动。测试、类型检查与构建通过不表示界面已验收。
 
 
-下载页按 macOS、Windows、Linux 分组，仅显示发布记录中实际存在的安装包。GitHub API 不可用时使用 `src/lib/release-snapshot.json` 中已核实的发布快照，并在页面注明；它不保证是最新版本。快照于 2026-10-18 从 `binyouo/Biny-Agent` 的 `v0.0.1-beta.2` 发布提取，保留 `tag_name`、`published_at` 和附件的 `name`、`browser_download_url`、`size`。发布新版本后应同步更新该快照。
+下载页按 macOS、Windows、Linux 分组。macOS 直接使用 GitHub 最新 Release 的安装包链接，不展示固定版本号；GitHub API 不可用时使用已发布 macOS 安装包的直链兜底。Windows 与 Linux 暂未发布，固定显示「待发布」。
 
 Linux 平台图标来自 [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/linux.svg)，采用 CC0-1.0 许可。

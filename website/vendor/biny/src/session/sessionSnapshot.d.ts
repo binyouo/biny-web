@@ -1,6 +1,6 @@
 import type { AgentMessage } from "../agent/core/types.js";
 import type { SessionReplay, SessionMessageReference, SessionDiscardedToolCall, SessionMessageNode } from "./replay.js";
-import type { SessionEvent, SessionContextUsage, SessionContextState, SessionContextCheckpoint, SessionUsage } from "./recorder.js";
+import type { SessionEvent, SessionContextState, SessionContextCheckpoint, SessionUsage } from "./recorder.js";
 import type { ModelRequestMetrics } from "../agent/core/types.js";
 import type { RuntimeHighWater } from "./runtimeEvent.js";
 export interface SessionSnapshotData {
@@ -17,7 +17,6 @@ export interface SessionSnapshotData {
     contextStartMessageIndex: number;
     contextStartUserMessageIndex: number;
     totalMessageCount: number;
-    contextUsage?: SessionContextUsage;
     contextState?: SessionContextState;
     contextCheckpoint?: SessionContextCheckpoint;
     usage: SessionUsage[];

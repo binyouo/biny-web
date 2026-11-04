@@ -17,7 +17,7 @@ function fixture() {
 test("桌面启动快照使用实际外观设置，会话正文通过原生文档协议提供", async () => {
   const { demo } = fixture();
   const boot = await demo.api.bootstrap();
-  assert.equal(boot.appearancePreference?.darkTheme, "vscode_dark");
+  assert.equal(boot.themePreference, "dark");
   assert.deepEqual(boot.fontPreference, { family: "system", size: 15 });
   assert.equal(boot.sidebarWidth, 250);
   assert.equal(boot.workspace?.memory?.enabled, true);

@@ -1,7 +1,7 @@
 import { type RetryOrigin } from "./retryOrigin.js";
 import type { AgentMessage, ModelRequestMetrics } from "../agent/core/types.js";
 import { type SessionMessageNode, type SessionMessageReference } from "./messageTree.js";
-import type { SessionContextCheckpoint, SessionContextState, SessionContextUsage, SessionEvent, SessionUsage } from "./recorder.js";
+import type { SessionContextCheckpoint, SessionContextState, SessionEvent, SessionUsage } from "./recorder.js";
 import { type RuntimeHighWater } from "./runtimeEvent.js";
 export { activeSessionEventsForPath, activeSessionMessageIds, sessionMessageTree, type SessionMessageNode, type SessionMessageReference } from "./messageTree.js";
 export interface SessionReplay {
@@ -17,7 +17,6 @@ export interface SessionReplay {
     contextStartUserMessageIndex: number;
     /** 应用 checkpoint 之前，完整 session 可以重放出的模型消息数。 */
     totalMessageCount: number;
-    contextUsage?: SessionContextUsage;
     contextState?: SessionContextState;
     contextCheckpoint?: SessionContextCheckpoint;
     usage: SessionUsage[];
@@ -59,6 +58,11 @@ export interface SessionDiscardedToolCall {
 export declare function replaySession(filePath: string): Promise<SessionReplay>;
 export declare function replayStoredSession(workspaceRoot: string, session: string | undefined): Promise<SessionReplay>;
 export declare function replaySessionEvents(recordedEvents: SessionEvent[], options?: SessionReplayOptions): SessionReplay;
+/**
+ * 汇总所有用量记录。一次对话的开销可能挂在三处：assistant 消息本身、user 消息上的准备
+ * 阶段（如上下文压缩、记忆检索），以及事件附带的 `relatedUsage`（如子 agent）。
+ */
+export declare function sessionUsage(events: SessionEvent[]): SessionUsage[];
 /**
  * 事件流重组为对话消息。
  *

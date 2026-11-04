@@ -23,9 +23,7 @@ export declare function globalPluginRoot(options?: PathEnvironment): string;
 export declare function projectSessionsDir(workspaceRoot: string, options?: PathEnvironment): string;
 /** 项目运行状态的全局分区；名称规则与项目 session 一致，避免同名工作区互相覆盖。 */
 export declare function workspaceAgentDir(workspaceRoot: string, options?: PathEnvironment): string;
-/** 新目录名 `<basename>-<hash8>`，供 store.ts 迁移和测试断言使用。 */
+/** 工作区目录名 `<basename>-<hash8>`。 */
 export declare function projectStateDirName(workspaceRoot: string): string;
-/** 旧版目录名是纯 24hex（sha256 前 24 位）；只在迁移旧目录时用到。 */
-export declare function legacyProjectStateDirName(workspaceRoot: string): string;
 export declare function projectBinyDir(workspaceRoot: string): string;
 export declare function projectSettingsPath(workspaceRoot: string): string;

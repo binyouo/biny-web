@@ -35,23 +35,49 @@ export const DOC_PAGES: readonly DocPage[] = [
   {
     slug: "introduction",
     title: "认识 Biny",
-    description: "了解 Biny 的运行架构、工作入口和本地数据边界。",
+    description: "认识 Biny 的人格、情绪与长期记忆，以及陪你聊天和做事的能力。",
     group: "开始使用",
-    keywords: ["介绍", "架构", "Runtime Host", "Agent", "本地优先", "Desktop", "TUI", "CLI"],
+    keywords: ["介绍", "人格", "Soul", "情绪", "疲劳", "日记", "自省", "心跳", "自拍", "虚拟旅行", "长期记忆", "Crystal", "架构", "Runtime Host", "Agent", "本地优先", "Desktop", "TUI", "CLI"],
     sections: [
       {
         id: "what-is-biny",
         title: "Biny 是什么",
         blocks: [
-          { type: "paragraph", text: "Biny 是运行在本机的开发协作 Agent。你可以从 macOS Desktop、终端 TUI 或 CLI 开始任务，让它阅读项目、修改文件、运行命令，再检查工具记录和结果。" },
+          { type: "paragraph", text: "Biny 是有记忆、人格与情绪系统的本机 AI 伙伴。你可以和它聊想法、接着上次的话题聊，也可以交给它一项任务，让它阅读项目、修改文件、运行命令，并查看过程和结果。" },
           { type: "paragraph", text: "Biny 会按当前任务查找相关的会话、项目资料、长期记忆和桌面活动。会话、记忆与活动记录保存在本机。你配置模型服务；使用远端 Provider 时，本轮消息和所需上下文会发送给该服务。" }
         ]
       },
       {
-        id: "what-you-can-do",
-        title: "用 Biny 做什么",
+        id: "personality-and-emotion",
+        title: "人格、情绪与作息",
         blocks: [
-          { type: "paragraph", text: "软件开发、资料整理、写作、数据文件与日常小工具都能交给 Biny。你可以按原样使用，让它根据你的习惯调整，也可以把它当作底座来搭建自己的应用。" }
+          { type: "list", items: [
+            "人格：默认表达好奇、温暖，带一点俏皮。你可以通过 SOUL.md 定义它的性格、表达习惯与形象；自省时还可以逐步积累成长特质。",
+            "分层情绪：基础心情与当前对话的心情共同影响语气、措辞和回应方式。对话情绪会随聊天更新，并随时间逐渐平复。",
+            "疲劳与作息：持续交流会积累疲劳，休息会恢复。清醒、疲倦、困倦和睡眠状态会影响表达；你也可以叫它去睡、醒来或休息。"
+          ] },
+          { type: "paragraph", text: "日常互动还包括自拍与虚拟旅行：配置图像模型后，可以结合认可的参考图生成自拍；虚拟旅行则记录想象中的行程、见闻与旅行日记。" }
+        ]
+      },
+      {
+        id: "memory-and-experience",
+        title: "把相处变成可延续的经历",
+        blocks: [
+          { type: "list", items: [
+            "跨对话记忆：保存偏好、约定和长期计划，在后续聊天中按需找回。Memory Sleep 负责合并重复记忆、归档过期信息，与人格的睡眠状态分别管理。",
+            "自省日记：回顾对话与经历，以自己的口吻写日记，并按需更新记忆、成长特质与基础心情。可以手动发起；开启心跳后，也会收到日记和自省的提示。",
+            "桌面活动回忆：开启 Computer History 并授权后，结合跨应用活动线索，帮你找回看过的内容、接上中断的思路。Crystal 则把值得持续关注的人、项目或话题组织成可继续补充的主题资料。"
+          ] },
+          { type: "link", title: "了解记忆与 Computer History", href: "/zh/docs/memory" }
+        ]
+      },
+      {
+        id: "what-you-can-do",
+        title: "能聊天，也能把事做完",
+        blocks: [
+          { type: "paragraph", text: "软件开发、资料整理、写作和数据处理都能交给 Biny。它能操作项目文件、运行命令，在授权范围内使用浏览器和 macOS 应用，也能在聊天里呈现图表、公式、音乐与交互式可视化。" },
+          { type: "paragraph", text: "复杂工作可以设置持续目标、拆给子代理，并保留任务进度；需要定时执行的工作可以配置本地自动化。模型由你选择，工具与工作流可通过 MCP、插件和 Skills 扩展。" },
+          { type: "link", title: "了解任务与恢复", href: "/zh/docs/tasks" }
         ]
       },
       {

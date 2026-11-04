@@ -1,92 +1,32 @@
 import { z } from "zod";
+import type { ToolExecutionContext } from "../tools/types.js";
 export declare const transferSchemas: {
     screenshot: z.ZodObject<{
         browserId: z.ZodString;
         tabId: z.ZodNumber;
-    } & {
         fullPage: z.ZodOptional<z.ZodBoolean>;
-    } & {
-        path: z.ZodString;
-    }, "strict", z.ZodTypeAny, {
-        path: string;
-        browserId: string;
-        tabId: number;
-        fullPage?: boolean | undefined;
-    }, {
-        path: string;
-        browserId: string;
-        tabId: number;
-        fullPage?: boolean | undefined;
-    }>;
+        path: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
     download: z.ZodObject<{
         browserId: z.ZodString;
         tabId: z.ZodNumber;
-    } & {
-        url: z.ZodEffects<z.ZodString, string, string>;
+        url: z.ZodString;
         timeoutMs: z.ZodOptional<z.ZodNumber>;
         frameId: z.ZodOptional<z.ZodString>;
         documentId: z.ZodOptional<z.ZodString>;
-    } & {
         path: z.ZodString;
-    }, "strict", z.ZodTypeAny, {
-        path: string;
-        url: string;
-        browserId: string;
-        tabId: number;
-        timeoutMs?: number | undefined;
-        frameId?: string | undefined;
-        documentId?: string | undefined;
-    }, {
-        path: string;
-        url: string;
-        browserId: string;
-        tabId: number;
-        timeoutMs?: number | undefined;
-        frameId?: string | undefined;
-        documentId?: string | undefined;
-    }>;
-    upload: z.ZodObject<Omit<{
+    }, z.core.$strict>;
+    upload: z.ZodObject<{
+        timeoutMs: z.ZodOptional<z.ZodNumber>;
         browserId: z.ZodString;
         tabId: z.ZodNumber;
-    } & {
-        files: z.ZodArray<z.ZodObject<{
-            name: z.ZodString;
-            mimeType: z.ZodString;
-            data: z.ZodString;
-        }, "strip", z.ZodTypeAny, {
-            name: string;
-            data: string;
-            mimeType: string;
-        }, {
-            name: string;
-            data: string;
-            mimeType: string;
-        }>, "many">;
-        selector: z.ZodString;
-        timeoutMs: z.ZodOptional<z.ZodNumber>;
         frameId: z.ZodOptional<z.ZodString>;
         documentId: z.ZodOptional<z.ZodString>;
-    }, "files"> & {
-        paths: z.ZodArray<z.ZodString, "many">;
-    }, "strict", z.ZodTypeAny, {
-        selector: string;
-        browserId: string;
-        tabId: number;
-        paths: string[];
-        timeoutMs?: number | undefined;
-        frameId?: string | undefined;
-        documentId?: string | undefined;
-    }, {
-        selector: string;
-        browserId: string;
-        tabId: number;
-        paths: string[];
-        timeoutMs?: number | undefined;
-        frameId?: string | undefined;
-        documentId?: string | undefined;
-    }>;
+        selector: z.ZodString;
+        paths: z.ZodArray<z.ZodString>;
+    }, z.core.$strict>;
 };
-export declare function transferBrowserFile(method: keyof typeof transferSchemas, input: unknown, options: {
+export interface BrowserFileOptions {
     workspaceRoot: string;
     ignore: string[];
     deniedPaths?: readonly string[];
@@ -95,4 +35,31 @@ export declare function transferBrowserFile(method: keyof typeof transferSchemas
     sessionId?: string;
     onDispatched?(): void;
     onCommit?(evidence: string): void;
-}): Promise<unknown>;
+    onImage?: ToolExecutionContext["onImage"];
+}
+export declare function readBrowserUploadFiles(paths: string[], options: BrowserFileOptions): Promise<{
+    name: string;
+    mimeType: string;
+    data: string;
+}[]>;
+export declare function prepareBrowserFile(requested: string, options: BrowserFileOptions, png?: boolean): (value: unknown) => Promise<{
+    path: string;
+    bytes: number;
+    mimeType: string;
+}>;
+export declare function prepareBrowserScreenshot(requested: string | undefined, options: BrowserFileOptions): (value: unknown) => Promise<{
+    path: string | undefined;
+    bytes: number;
+    mimeType: string;
+    url: string | undefined;
+    title: string | undefined;
+    imageReturned: boolean;
+}>;
+export declare function prepareBrowserClipboardRead(value: unknown, includeImage: boolean, onImage?: ToolExecutionContext["onImage"]): {
+    imageReturned?: boolean | undefined;
+    imageStatus?: "available" | "too_large" | undefined;
+    hasImage?: boolean | undefined;
+    text: string;
+    truncated: boolean;
+};
+export declare function transferBrowserFile(method: keyof typeof transferSchemas, input: unknown, options: BrowserFileOptions): Promise<unknown>;

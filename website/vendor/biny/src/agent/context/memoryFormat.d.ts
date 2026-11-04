@@ -24,7 +24,7 @@ export declare function createStoredMemoryEntry(input: MemoryEntryInput, fields:
 /** 批量读取只复用本批已验证的来源时区；调用方不能预填校验结果。 */
 export declare function createStoredMemoryEntryReader(): typeof createStoredMemoryEntry;
 export declare function normalizeMemoryOriginAnchors(value: MemoryOriginAnchor[] | undefined): MemoryOriginAnchor[] | undefined;
-/** 向量 top-K 之后的事实范围过滤。 */
+/** 向量 top-K 之前的事实范围过滤；命中返回前仍复核范围。 */
 export declare function entryMatchesMemorySearchScope(entry: MemoryEntry, scope: MemorySearchScope): boolean;
 export declare function normalizeImportance(value: number | undefined): number;
 export declare function memoryEntryExactKey(entry: Pick<MemoryEntry, "content" | "userId"> | Pick<MemoryEntryInput, "content" | "userId">): string;

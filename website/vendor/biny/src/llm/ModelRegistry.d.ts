@@ -69,7 +69,7 @@ export declare class ModelRegistry {
     catalogsSnapshot(): Array<[string, ModelCatalogEntry[]]>;
     listModels(): ModelChoice[];
     listAvailableModels(): ModelChoice[];
-    /** Embedding 目录独立于聊天模型 picker，只包含 provider 显式声明的 wire/model。 */
+    /** Embedding 候选复用模型目录，但传输协议必须由 Provider 明确声明。 */
     listEmbeddingModels(): EmbeddingModelDescriptor[];
     isAvailable(resolved: RegisteredModel): boolean;
     resolve(aliasOrReference: string): RegisteredModel | undefined;

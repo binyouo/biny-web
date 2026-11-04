@@ -1,3 +1,4 @@
+import { summarizeToolOptimizations } from "../../../../session/toolOptimization.js";
 import { useChatResponseSettings } from "../chatResponseSettings.js";
 /**
  * 对话时间线：逐轮渲染用户消息、思考过程、助手回复和工具活动。
@@ -10,6 +11,7 @@ import { createPortal } from "react-dom";
 import type { PermissionResult } from "../../../../permission/PermissionManager.js";
 import type { SessionUsage } from "../../../../session/metadata.js";
 import { splitAttachmentReferences, type AttachmentReference } from "../../../attachmentReferences.js";
+import { markdownPlainText } from "../markdownPlainText.js";
 import { copyToClipboard } from "../copyToClipboard.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 import { listChangedFiles, type TimelineStep, type TimelineTurn } from "../sessionTimeline.js";
@@ -50,7 +52,7 @@ interface MessageTimelineProps {
   onResolvePermission(requestId: string, result: PermissionResult): Promise<void>;
   thinking: boolean;
   compacting?: boolean;
-  onRetry(targetMessageId: string, input: string, idempotencyKey: string): Promise<void>;
+  onRetry(targetMessageId: string, input: string, attachments: AttachmentReference[], idempotencyKey: string): Promise<void>;
   onSwitchVersion(messageId: string, direction: "prev" | "next"): Promise<void>;
   /** 点「编辑」：把消息文本交给底部输入框，提交由 Composer 走 App 回调。 */
   onEditRequest(turn: TimelineTurn): void;
@@ -64,6 +66,7 @@ interface PendingUserMessage {
   id: string;
   messageId: string;
   content: string;
+  attachments?: AttachmentReference[];
 }
 
 interface OptimisticRewrite {
@@ -75,6 +78,15 @@ interface OptimisticRewrite {
   settled: boolean;
 }
 
+interface QuoteSelectionOwner {
+  messageId: string;
+  quote: string;
+  startContainer: Node;
+  startOffset: number;
+  endContainer: Node;
+  endOffset: number;
+}
+
 /** live 回合的 id 是 runId；状态停在 idle 说明 run.started 被丢过，由 runtime 的活动 run 兜底。 */
 function turnIsRunning(turn: TimelineTurn, runtimeActiveRunId: string | undefined): boolean {
   if (turn.status === "running" || turn.status === "waiting_permission") return true;
@@ -82,50 +94,123 @@ function turnIsRunning(turn: TimelineTurn, runtimeActiveRunId: string | undefine
     || turn.tools.some((tool) => tool.runId === runtimeActiveRunId && (tool.status === "running" || tool.status === "waiting")));
 }
 
+function christmasSeasonActive(now = new Date()): boolean {
+  return now.getMonth() === 11 && (now.getDate() === 25
+    || now.getDate() === 24 && (now.getHours() > 18 || now.getHours() === 18 && now.getMinutes() >= 30));
+}
+
+/** A delivered user step owns its quote source even inside an assistant article. */
+function messageQuoteSource(markdown: Element | null | undefined): { element: HTMLElement; messageId: string } | undefined {
+  const userSource = markdown?.closest<HTMLElement>('.execution-user-step[data-quote-source="user"]');
+  if (userSource) {
+    const messageId = userSource.dataset.quoteMessageId;
+    return messageId ? { element: userSource, messageId } : undefined;
+  }
+  const article = markdown?.closest<HTMLElement>("article[data-message-id]");
+  const messageId = article?.dataset.messageId;
+  return article && messageId ? { element: article, messageId } : undefined;
+}
+
 export const MessageTimeline = memo(function MessageTimeline({ sessionId, readOnly = false, externalAgent = false, projectId, turns, skillDescriptions, skillLabels, pendingUserMessage, runtimeActiveRunId, onPreviewFile, onOpenExternal, onReferenceMessage, onShowMessageReferences, onAddQuoteToConversation, onResolvePermission, thinking, compacting = false, onRetry, onSwitchVersion, onEditRequest, editInFlight, onCreateBranch, onRollbackFiles }: MessageTimelineProps): React.JSX.Element {
   // 重试会先把目标之后的消息从视图中撤掉，再等待新回合流入；这里保留同样的乐观投影。
   // 编辑的重写投影来自 App（editInFlight），提交入口在底部输入框，不经过本组件状态。
   const [optimisticRewrite, setOptimisticRewrite] = useState<OptimisticRewrite>();
-  const [quoteSelection, setQuoteSelection] = useState<{ messageId: string; quote: string; top: number; left: number }>();
+  const [quoteSelection, setQuoteSelection] = useState<{ owner: QuoteSelectionOwner; top: number; left: number }>();
   const [addingQuote, setAddingQuote] = useState(false);
+  const addingQuoteRef = useRef(false);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const updateQuoteSelection = useCallback((): void => {
-    if (readOnly) { setQuoteSelection(undefined); return; }
+  // 关闭浮层不取消原生选区；只有新选择才重新唤起，滚动和延迟事件只更新几何。
+  const dismissedQuoteSelection = useRef<{
+    startContainer: Node; startOffset: number; endContainer: Node; endOffset: number; quote: string;
+  } | undefined>(undefined);
+  const dismissQuoteSelection = useCallback((): void => {
+    const selection = window.getSelection();
+    const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : undefined;
+    dismissedQuoteSelection.current = range ? {
+      startContainer: range.startContainer, startOffset: range.startOffset,
+      endContainer: range.endContainer, endOffset: range.endOffset, quote: selection!.toString().trim()
+    } : undefined;
+    setQuoteSelection(undefined);
+  }, []);
+  const isDismissedQuoteSelection = useCallback((selection: Selection | null): boolean => {
+    const dismissed = dismissedQuoteSelection.current;
+    if (!dismissed || !selection || selection.isCollapsed || !selection.rangeCount) return false;
+    const range = selection.getRangeAt(0);
+    return dismissed.startContainer === range.startContainer && dismissed.startOffset === range.startOffset
+      && dismissed.endContainer === range.endContainer && dismissed.endOffset === range.endOffset
+      && dismissed.quote === selection.toString().trim();
+  }, []);
+  const quoteSelectionOwnerRef = useRef<QuoteSelectionOwner | undefined>(undefined);
+  const captureQuoteSelection = useCallback((): { owner: QuoteSelectionOwner; range: Range } | undefined => {
     const selection = window.getSelection();
     const timeline = timelineRef.current;
-    if (!selection || selection.isCollapsed || !selection.rangeCount || !timeline) { setQuoteSelection(undefined); return; }
+    if (readOnly || !selection || selection.isCollapsed || !selection.rangeCount || !timeline) {
+      quoteSelectionOwnerRef.current = undefined;
+      dismissedQuoteSelection.current = undefined;
+      return;
+    }
     const range = selection.getRangeAt(0);
+    if (isDismissedQuoteSelection(selection)) return;
+    dismissedQuoteSelection.current = undefined;
     const element = (node: Node): Element | null => node instanceof Element ? node : node.parentElement;
     const start = element(range.startContainer)?.closest(".markdown-body");
     const end = element(range.endContainer)?.closest(".markdown-body");
-    const message = start?.closest<HTMLElement>("article[data-message-id]");
-    if (!start || start.closest(".subagent-card") || start !== end || !message?.dataset.messageId || !timeline.contains(message)) { setQuoteSelection(undefined); return; }
+    const source = messageQuoteSource(start);
     const quote = selection.toString().trim();
-    if (!quote || quote.length > 4_000) { setQuoteSelection(undefined); return; }
-    const bounds = range.getBoundingClientRect();
+    if (!start || start.closest(".subagent-card") || start !== end || !source || !timeline.contains(source.element)
+      || !quote || quote.length > 4_000) {
+      quoteSelectionOwnerRef.current = undefined;
+      return;
+    }
+    const current = quoteSelectionOwnerRef.current;
+    const owner = current?.messageId === source.messageId && current.quote === quote
+      && current.startContainer === range.startContainer && current.startOffset === range.startOffset
+      && current.endContainer === range.endContainer && current.endOffset === range.endOffset ? current : {
+        messageId: source.messageId, quote,
+        startContainer: range.startContainer, startOffset: range.startOffset,
+        endContainer: range.endContainer, endOffset: range.endOffset
+      };
+    quoteSelectionOwnerRef.current = owner;
+    return { owner, range };
+  }, [isDismissedQuoteSelection, readOnly]);
+  const updateQuoteSelection = useCallback((): void => {
+    const selection = captureQuoteSelection();
+    if (!selection) { setQuoteSelection(undefined); return; }
+    const bounds = selection.range.getBoundingClientRect();
     if ((bounds.width === 0 && bounds.height === 0) || bounds.bottom < 0 || bounds.top > window.innerHeight
       || bounds.right < 0 || bounds.left > window.innerWidth) { setQuoteSelection(undefined); return; }
     const next = {
-      messageId: message.dataset.messageId,
-      quote,
+      owner: selection.owner,
       top: Math.max(8, Math.min(bounds.top - 38, window.innerHeight - 42)),
       left: Math.max(8, Math.min(bounds.left, window.innerWidth - 124))
     };
-    setQuoteSelection((current) => current?.messageId === next.messageId && current.quote === next.quote
+    setQuoteSelection((current) => current?.owner === next.owner
       && Math.abs(current.top - next.top) < 1 && Math.abs(current.left - next.left) < 1 ? current : next);
-  }, [readOnly]);
+  }, [captureQuoteSelection]);
   useEffect(() => {
+    dismissQuoteSelection();
     let selectionTimer: number | undefined;
     const scheduleSelectionUpdate = (): void => {
+      // 原生选区变化立即解除旧关闭状态；显示仍防抖，避免快速取消重选被合并成旧选区。
+      if (!isDismissedQuoteSelection(window.getSelection())) dismissedQuoteSelection.current = undefined;
+      // 同步观察取消和重选；120 ms 防抖只延迟显示，不能合并两轮选区的归属。
+      captureQuoteSelection();
       if (selectionTimer !== undefined) window.clearTimeout(selectionTimer);
       selectionTimer = window.setTimeout(updateQuoteSelection, 120);
     };
     const closeOutside = (event: PointerEvent): void => {
       const target = event.target;
-      if (target instanceof Node && !timelineRef.current?.contains(target)
-        && !(target instanceof Element && target.closest(".message-selection-reference"))) setQuoteSelection(undefined);
+      if (!(target instanceof Node) || target instanceof Element && target.closest(".message-selection-reference")) return;
+      if (!timelineRef.current?.contains(target)) {
+        dismissQuoteSelection();
+      } else if (event.button === 0 && target instanceof Element && target.closest(".markdown-body")
+        && !target.closest("a, button, input, textarea, select, [contenteditable='true']")) {
+        // 主动重新拖选同一段文字，也是一轮新选择。
+        dismissedQuoteSelection.current = undefined;
+        quoteSelectionOwnerRef.current = undefined;
+      }
     };
-    const escape = (event: KeyboardEvent): void => { if (event.key === "Escape") setQuoteSelection(undefined); };
+    const escape = (event: KeyboardEvent): void => { if (event.key === "Escape") dismissQuoteSelection(); };
     document.addEventListener("selectionchange", scheduleSelectionUpdate);
     document.addEventListener("pointerdown", closeOutside);
     document.addEventListener("keydown", escape);
@@ -139,7 +224,7 @@ export const MessageTimeline = memo(function MessageTimeline({ sessionId, readOn
       window.removeEventListener("scroll", updateQuoteSelection, true);
       window.removeEventListener("resize", updateQuoteSelection);
     };
-  }, [updateQuoteSelection]);
+  }, [captureQuoteSelection, dismissQuoteSelection, isDismissedQuoteSelection, projectId, sessionId, updateQuoteSelection]);
 
   const startOptimisticRewrite = useCallback((turn: TimelineTurn, mode: OptimisticRewrite["mode"], user = turn.user): void => {
     setOptimisticRewrite({
@@ -235,6 +320,7 @@ export const MessageTimeline = memo(function MessageTimeline({ sessionId, readOn
       id: pendingUserMessage.id,
       userMessageId: pendingUserMessage.messageId,
       user: pendingUserMessage.content,
+      userAttachments: pendingUserMessage.attachments,
       assistant: "",
       reasoning: "",
       skills: [],
@@ -244,9 +330,10 @@ export const MessageTimeline = memo(function MessageTimeline({ sessionId, readOn
     }]
     : displayedTurns;
   const busy = compacting || thinking || Boolean(rewrite) || visibleTurns.some((turn) => turnIsRunning(turn, runtimeActiveRunId));
+  const christmasThread = christmasSeasonActive() && visibleTurns.some((turn) => turn.assistant.includes("<--Christmas-->"));
   // 失败状态跟随对应消息，切会话、重启后仍可定位和重试。
   return (
-    <div className="message-timeline" ref={timelineRef} onMouseUp={updateQuoteSelection}>
+    <div className="message-timeline" data-christmas={christmasThread ? "true" : undefined} ref={timelineRef} onMouseUp={updateQuoteSelection}>
       {visibleTurns.map((turn) => (
         turn.recoveryOnly ? <SavedMessageRecovery key={turn.id} messages={turn.savedMessages ?? []} detached /> :
         <Turn
@@ -281,13 +368,16 @@ export const MessageTimeline = memo(function MessageTimeline({ sessionId, readOn
         : thinking && !visibleTurns.some((turn) => turnIsRunning(turn, runtimeActiveRunId)) ? <RunStatus /> : null}
       {!readOnly && quoteSelection ? createPortal(<button aria-label="将选中文字添加到对话" aria-busy={addingQuote} className="message-selection-reference" disabled={addingQuote} style={{ top: quoteSelection.top, left: quoteSelection.left }}
         onMouseDown={(event) => event.preventDefault()} onClick={() => {
-          if (addingQuote) return;
+          if (addingQuoteRef.current) return;
+          addingQuoteRef.current = true;
           setAddingQuote(true);
-          void onAddQuoteToConversation(quoteSelection.messageId, quoteSelection.quote).finally(() => {
+          const owner = quoteSelection.owner;
+          void onAddQuoteToConversation(owner.messageId, owner.quote).finally(() => {
+            addingQuoteRef.current = false;
             setAddingQuote(false);
-            setQuoteSelection(undefined);
+            setQuoteSelection((current) => current?.owner === owner ? undefined : current);
           });
-        }} type="button"><Icon name="quote" size={14} />{addingQuote ? "正在添加…" : "添加到对话"}</button>, document.body) : null}
+        }} type="button"><Icon name="quote" size={14} />添加到对话</button>, document.body) : null}
     </div>
   );
 });
@@ -380,7 +470,7 @@ const Turn = memo(function Turn({
   onReferenceMessage(messageId: string): void;
   onShowMessageReferences(messageId: string): void;
   onResolvePermission(requestId: string, result: PermissionResult): Promise<void>;
-  onRetry(targetMessageId: string, input: string, idempotencyKey: string): Promise<void>;
+  onRetry(targetMessageId: string, input: string, attachments: AttachmentReference[], idempotencyKey: string): Promise<void>;
   onRetryStart(turn: TimelineTurn, mode: "retry" | "edit", user?: string): void;
   onRetrySettled(turnId: string, succeeded: boolean): void;
   onSwitchVersion(messageId: string, direction: "prev" | "next"): Promise<void>;
@@ -397,7 +487,7 @@ const Turn = memo(function Turn({
     const existing = retryPromiseRef.current;
     if (existing) return existing;
     onRetryStart(turn, "retry");
-    const pending = Promise.resolve().then(() => onRetry(targetMessageId, turn.user, globalThis.crypto.randomUUID()));
+    const pending = Promise.resolve().then(() => onRetry(targetMessageId, turn.user, turn.userAttachments ?? [], globalThis.crypto.randomUUID()));
     retryPromiseRef.current = pending;
     void pending.then(
       () => {
@@ -432,9 +522,10 @@ const Turn = memo(function Turn({
   const emptyIncompleteTurn = !running && turn.status === "incomplete" && !turn.assistant.trim();
   return (
     <section className={`timeline-turn is-${turn.status}`}>
-      {turn.user ? (
+      {turn.user || turn.userAttachments?.length ? (
         <UserMessage
           content={turn.user}
+          attachments={turn.userAttachments}
           messageId={turn.userMessageId}
           pending={pending}
           hasChangedFiles={listChangedFiles(turn).length > 0}
@@ -471,7 +562,6 @@ const Turn = memo(function Turn({
         {emptyIncompleteTurn ? <div className="execution-empty-response" role="status">{turn.error || "本轮未完成，尚未生成回复正文。"}</div> : null}
         {!executionSteps.some((step) => step.kind === "assistant") && turn.assistant ? <TypewriterMarkdown active={running} content={turn.assistant} onOpenExternal={onOpenExternal} onPreviewFile={onPreviewFile} projectId={projectId} /> : null}
         {running && !suppressRunStatus ? <RunStatus turn={turn} /> : null}
-
         {!running && completedChangedFiles.length > 0 ? (
           <ChangesSummary files={completedChangedFiles} onPreviewFile={onPreviewFile} />
         ) : null}
@@ -596,8 +686,11 @@ export function ExecutionTimeline({ readOnly, keepActivitiesOpen = false,
         }
         if (step.kind === "user") {
           return (
-            <div className="execution-step execution-user-step user-message" key={step.id}>
-              <div className="user-bubble"><MarkdownContent breaks content={step.content} onOpenExternal={onOpenExternal} onPreviewFile={onPreviewFile} projectId={projectId} /></div>
+            <div className="execution-step execution-user-step user-message" data-quote-source="user" data-quote-message-id={step.messageId} key={step.id}>
+              <div className="user-bubble">
+                <MarkdownContent breaks content={step.content} onOpenExternal={onOpenExternal} onPreviewFile={onPreviewFile} projectId={projectId} />
+                {step.attachments?.length ? <MessageAttachments attachments={step.attachments} projectId={projectId} /> : null}
+              </div>
             </div>
           );
         }
@@ -605,18 +698,7 @@ export function ExecutionTimeline({ readOnly, keepActivitiesOpen = false,
         if (step.kind === "tool") return step.tool.tool === "AskUserQuestion"
           ? <UserInputCard key={`${sessionId}:${step.tool.runId}:${step.id}`} tool={step.tool} projectId={projectId} sessionId={sessionId} running={running} />
           : <SubagentActivity key={step.id} tool={step.tool} projectId={projectId} sessionId={sessionId} readOnly={readOnly} onPreviewFile={onPreviewFile} onOpenExternal={onOpenExternal} onResolvePermission={onResolvePermission} />;
-        if (step.summary) {
-          return (
-            <ActivitySummaryStep
-              content={step.content}
-              key={step.id}
-              onOpenExternal={onOpenExternal}
-              onPreviewFile={onPreviewFile}
-              projectId={projectId}
-            />
-          );
-        }
-        return <div className="execution-step execution-assistant-step" key={step.id}><TypewriterMarkdown active={running && index === entries.length - 1 && !step.completed} content={step.content} onOpenExternal={onOpenExternal} onPreviewFile={onPreviewFile} projectId={projectId} /></div>;
+        return <div className="execution-step execution-assistant-step" key={step.id}><TypewriterMarkdown active={running && index === entries.length - 1 && !step.completed && !step.summary} content={step.content} onOpenExternal={onOpenExternal} onPreviewFile={onPreviewFile} projectId={projectId} /></div>;
       })}
     </div>
   );
@@ -648,19 +730,6 @@ function isGroupableStep(step: TimelineStep): step is ActivitySegmentStep {
   return step.kind === "reasoning" && step.notice !== "compaction";
 }
 
-function ActivitySummaryStep({ content, onOpenExternal, onPreviewFile, projectId }: {
-  content: string;
-  onOpenExternal(url: string): void;
-  onPreviewFile(path: string): void;
-  projectId: string;
-}): React.JSX.Element {
-  return (
-    <div className="execution-step execution-assistant-step execution-summary-step">
-      <MarkdownContent content={content} onOpenExternal={onOpenExternal} onPreviewFile={onPreviewFile} projectId={projectId} />
-    </div>
-  );
-}
-
 function UserMessage({
   content,
   messageId,
@@ -675,7 +744,8 @@ function UserMessage({
   onReference,
   onShowReferences,
   projectId,
-  time
+  time,
+  attachments
 }: {
   content: string;
   messageId?: string;
@@ -692,12 +762,16 @@ function UserMessage({
   projectId: string;
   /** 消息时间（ISO 字符串）；存在时操作行前置 hover 揭示的日期感知时钟。 */
   time?: string;
+  attachments?: AttachmentReference[];
 }): React.JSX.Element {
   const [animateEntry] = useState(pending);
   // 更多菜单走 portal fixed 定位（与助手菜单共用 hook），内联渲染会把消息列表往下挤。
   const { open: menuOpen, position: menuPosition, anchorRef: moreAnchorRef, menuRef, toggle, close: closeMenu } = useAnchoredMenu({ width: 248, estimatedHeight: 196, align: "end" });
   // 发送时追加给模型的附件清单不该原样显示，拆出来渲染成附件卡片。
-  const message = useMemo(() => splitAttachmentReferences(content), [content]);
+  const message = useMemo(() => {
+    const legacy = splitAttachmentReferences(content);
+    return { text: legacy.text, attachments: attachments?.length ? attachments : legacy.attachments };
+  }, [attachments, content]);
   const clock = time ? <MessageClock time={Date.parse(time)} /> : null;
   return (
     <article aria-label={pending ? "发送中" : undefined} aria-busy={pending || undefined} className={`chat-message user-message${animateEntry ? " is-entering" : ""}`} data-message-id={messageId} data-sender="user" tabIndex={-1}>
@@ -732,13 +806,7 @@ function copyText(content: string): void {
 }
 
 function plainTextFromMarkdown(content: string): string {
-  return content
-    .replace(/```[^\n]*\n?([\s\S]*?)```/g, "$1")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/[*_~`]/g, "")
-    .trim();
+  return markdownPlainText(content);
 }
 
 /** 助手回复下方的操作条：
@@ -771,6 +839,12 @@ function AssistantActions({ projectId, sessionId, turn, skillDescriptions, skill
   const stopSpeechRef = useRef<() => void>(undefined);
   const { showTokenUsage } = useChatResponseSettings();
   const usageRows = showTokenUsage ? buildUsageDetailRows(usage, metrics ?? {}) : [];
+  const optimization = summarizeToolOptimizations(turn.tools);
+  if (showTokenUsage && optimization.runs) {
+    usageRows.push({ key: "optimization", label: optimization.savedTokens < 0 ? "增加上下文（估算）" : "减少上下文（估算）", value: `${Math.abs(optimization.savedTokens).toLocaleString()} tokens` },
+      { key: "rtk", label: "命令输出压缩", value: `${optimization.rtkTokens.toLocaleString()} tokens` },
+      { key: "ptc", label: "脚本筛选与聚合", value: `${optimization.ptcTokens.toLocaleString()} tokens` });
+  }
   const tone = finishReason ? finishReasonTone(finishReason) : undefined;
   // 更多菜单走 portal fixed 定位；条目数按需增减（用量/结束原因 + 分隔线），高度用于弹出方向判断。
   const menuItemCount = 5 + Number(Boolean(onReference)) + Number(Boolean(onShowReferences)) + (usageRows.length ? 1 : 0) + (finishReason ? 1 : 0) + ((usageRows.length || finishReason) ? 1 : 0);
@@ -796,9 +870,14 @@ function AssistantActions({ projectId, sessionId, turn, skillDescriptions, skill
     };
   }, [menuOpen, content, projectId, sessionId, turn.assistantMessageId]);
 
-  // 组件卸载（切会话、消息被折叠）时朗读与悬浮卡定时器都要跟着停。
+  // 同一用户回合切换回复版本时操作条不会卸载，朗读必须跟随原回复结束。
   useEffect(() => () => {
     stopSpeechRef.current?.();
+    stopSpeechRef.current = undefined;
+  }, [content, projectId, sessionId, turn.assistantMessageId]);
+
+  // 悬浮卡定时器只在操作条卸载时清理，不随回复切换重置菜单交互。
+  useEffect(() => () => {
     if (usageHideTimerRef.current !== undefined) window.clearTimeout(usageHideTimerRef.current);
   }, []);
 
@@ -922,7 +1001,8 @@ function AssistantActions({ projectId, sessionId, turn, skillDescriptions, skill
           <MessageContextMenu
             tools={turn.tools.map((tool) => tool.tool)}
             skills={turn.skills}
-            skillSelection={turn.capabilitySelection?.skills}
+            selectedSkills={turn.capabilitySelection?.skills}
+            skillCalls={turn.tools}
             skillLabels={skillLabels}
             descriptions={skillDescriptions}
             memoryRecallDegraded={turn.memoryRecallDegraded}
@@ -957,10 +1037,10 @@ function AssistantActions({ projectId, sessionId, turn, skillDescriptions, skill
           {hasContent ? (
             <>
               <button aria-label="复制为 Markdown" aria-busy={copyingKind === "markdown"} disabled={copyingKind !== undefined} className={`message-menu-item${copiedKind === "markdown" ? " is-success" : ""}`} onClick={() => { void copyAs("markdown"); }} role="menuitem" type="button">
-                <Icon name={copiedKind === "markdown" ? "check" : "copy"} size={14} /><span>{copyingKind === "markdown" ? "正在复制…" : "复制为 Markdown"}</span>
+                <Icon name={copiedKind === "markdown" ? "check" : "copy"} size={14} /><span>复制为 Markdown</span>
               </button>
               <button aria-label="复制为纯文本" aria-busy={copyingKind === "plain"} disabled={copyingKind !== undefined} className={`message-menu-item${copiedKind === "plain" ? " is-success" : ""}`} onClick={() => { void copyAs("plain"); }} role="menuitem" type="button">
-                <Icon name={copiedKind === "plain" ? "check" : "file-text"} size={14} /><span>{copyingKind === "plain" ? "正在复制…" : "复制为纯文本"}</span>
+                <Icon name={copiedKind === "plain" ? "check" : "file-text"} size={14} /><span>复制为纯文本</span>
               </button>
             </>
           ) : null}

@@ -15,7 +15,7 @@ import type { ToolContext, ToolExecutionContext } from "../tools/types.js";
 import { type Tool } from "../tools/types.js";
 import { type SubagentDefinition } from "./agents.js";
 import { WorkerSession, type WorkerExecution } from "../runtime/WorkerSession.js";
-export declare const taskVerificationSchema: z.ZodEffects<z.ZodObject<{
+export declare const taskVerificationSchema: z.ZodPipe<z.ZodObject<{
     objective: z.ZodString;
     context: z.ZodOptional<z.ZodString>;
     checks: z.ZodArray<z.ZodObject<{
@@ -23,71 +23,34 @@ export declare const taskVerificationSchema: z.ZodEffects<z.ZodObject<{
         command: z.ZodString;
         cwd: z.ZodOptional<z.ZodString>;
         timeoutMs: z.ZodOptional<z.ZodNumber>;
-        definitionPaths: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    }, "strict", z.ZodTypeAny, {
-        command: string;
-        id?: string | undefined;
-        timeoutMs?: number | undefined;
-        cwd?: string | undefined;
-        definitionPaths?: string[] | undefined;
-    }, {
-        command: string;
-        id?: string | undefined;
-        timeoutMs?: number | undefined;
-        cwd?: string | undefined;
-        definitionPaths?: string[] | undefined;
-    }>, "many">;
-    artifactPaths: z.ZodArray<z.ZodString, "many">;
-    allowedRepairPaths: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+        definitionPaths: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    }, z.core.$strict>>;
+    artifactPaths: z.ZodArray<z.ZodString>;
+    allowedRepairPaths: z.ZodOptional<z.ZodArray<z.ZodString>>;
     maxAttempts: z.ZodOptional<z.ZodNumber>;
-}, "strict", z.ZodTypeAny, {
+}, z.core.$strict>, z.ZodTransform<TaskVerificationContract, {
     objective: string;
     checks: {
         command: string;
         id?: string | undefined;
-        timeoutMs?: number | undefined;
         cwd?: string | undefined;
+        timeoutMs?: number | undefined;
         definitionPaths?: string[] | undefined;
     }[];
     artifactPaths: string[];
     context?: string | undefined;
-    maxAttempts?: number | undefined;
     allowedRepairPaths?: string[] | undefined;
-}, {
-    objective: string;
-    checks: {
-        command: string;
-        id?: string | undefined;
-        timeoutMs?: number | undefined;
-        cwd?: string | undefined;
-        definitionPaths?: string[] | undefined;
-    }[];
-    artifactPaths: string[];
-    context?: string | undefined;
     maxAttempts?: number | undefined;
-    allowedRepairPaths?: string[] | undefined;
-}>, TaskVerificationContract, {
-    objective: string;
-    checks: {
-        command: string;
-        id?: string | undefined;
-        timeoutMs?: number | undefined;
-        cwd?: string | undefined;
-        definitionPaths?: string[] | undefined;
-    }[];
-    artifactPaths: string[];
-    context?: string | undefined;
-    maxAttempts?: number | undefined;
-    allowedRepairPaths?: string[] | undefined;
-}>;
+}>>;
 declare const subagentSchema: z.ZodObject<{
     task: z.ZodString;
     description: z.ZodOptional<z.ZodString>;
     name: z.ZodOptional<z.ZodString>;
     agent: z.ZodOptional<z.ZodString>;
     background: z.ZodOptional<z.ZodBoolean>;
-    constraints: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    verification: z.ZodOptional<z.ZodEffects<z.ZodObject<{
+    isolation: z.ZodOptional<z.ZodLiteral<"worktree">>;
+    constraints: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    verification: z.ZodOptional<z.ZodPipe<z.ZodObject<{
         objective: z.ZodString;
         context: z.ZodOptional<z.ZodString>;
         checks: z.ZodArray<z.ZodObject<{
@@ -95,93 +58,26 @@ declare const subagentSchema: z.ZodObject<{
             command: z.ZodString;
             cwd: z.ZodOptional<z.ZodString>;
             timeoutMs: z.ZodOptional<z.ZodNumber>;
-            definitionPaths: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-        }, "strict", z.ZodTypeAny, {
-            command: string;
-            id?: string | undefined;
-            timeoutMs?: number | undefined;
-            cwd?: string | undefined;
-            definitionPaths?: string[] | undefined;
-        }, {
-            command: string;
-            id?: string | undefined;
-            timeoutMs?: number | undefined;
-            cwd?: string | undefined;
-            definitionPaths?: string[] | undefined;
-        }>, "many">;
-        artifactPaths: z.ZodArray<z.ZodString, "many">;
-        allowedRepairPaths: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+            definitionPaths: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        }, z.core.$strict>>;
+        artifactPaths: z.ZodArray<z.ZodString>;
+        allowedRepairPaths: z.ZodOptional<z.ZodArray<z.ZodString>>;
         maxAttempts: z.ZodOptional<z.ZodNumber>;
-    }, "strict", z.ZodTypeAny, {
+    }, z.core.$strict>, z.ZodTransform<TaskVerificationContract, {
         objective: string;
         checks: {
             command: string;
             id?: string | undefined;
-            timeoutMs?: number | undefined;
             cwd?: string | undefined;
+            timeoutMs?: number | undefined;
             definitionPaths?: string[] | undefined;
         }[];
         artifactPaths: string[];
         context?: string | undefined;
-        maxAttempts?: number | undefined;
         allowedRepairPaths?: string[] | undefined;
-    }, {
-        objective: string;
-        checks: {
-            command: string;
-            id?: string | undefined;
-            timeoutMs?: number | undefined;
-            cwd?: string | undefined;
-            definitionPaths?: string[] | undefined;
-        }[];
-        artifactPaths: string[];
-        context?: string | undefined;
         maxAttempts?: number | undefined;
-        allowedRepairPaths?: string[] | undefined;
-    }>, TaskVerificationContract, {
-        objective: string;
-        checks: {
-            command: string;
-            id?: string | undefined;
-            timeoutMs?: number | undefined;
-            cwd?: string | undefined;
-            definitionPaths?: string[] | undefined;
-        }[];
-        artifactPaths: string[];
-        context?: string | undefined;
-        maxAttempts?: number | undefined;
-        allowedRepairPaths?: string[] | undefined;
-    }>>;
-}, "strict", z.ZodTypeAny, {
-    task: string;
-    name?: string | undefined;
-    background?: boolean | undefined;
-    agent?: string | undefined;
-    description?: string | undefined;
-    constraints?: string[] | undefined;
-    verification?: TaskVerificationContract | undefined;
-}, {
-    task: string;
-    name?: string | undefined;
-    background?: boolean | undefined;
-    agent?: string | undefined;
-    description?: string | undefined;
-    constraints?: string[] | undefined;
-    verification?: {
-        objective: string;
-        checks: {
-            command: string;
-            id?: string | undefined;
-            timeoutMs?: number | undefined;
-            cwd?: string | undefined;
-            definitionPaths?: string[] | undefined;
-        }[];
-        artifactPaths: string[];
-        context?: string | undefined;
-        maxAttempts?: number | undefined;
-        allowedRepairPaths?: string[] | undefined;
-    } | undefined;
-}>;
+    }>>>;
+}, z.core.$strict>;
 export type SubagentToolInput = z.infer<typeof subagentSchema>;
 export interface SubagentOptions {
     workspaceRoot: string;
@@ -202,7 +98,6 @@ export interface SubagentOptions {
         afterRevision?: number;
     }, context: ToolExecutionContext) => Promise<unknown>;
     communication?: TaskCommunication;
-    continueTask?: (taskRunId: string, message: string, requestId: string, signal?: AbortSignal) => Promise<unknown>;
     cancelTask?: (taskRunId: string, reason?: string) => unknown;
 }
 export declare function createSubagentTool(options: SubagentOptions): Tool<SubagentToolInput, unknown>;
@@ -211,7 +106,7 @@ export declare function createTaskStatusTool(options: SubagentOptions): Tool<{
     waitMs?: number;
     afterRevision?: number;
 }, unknown>;
-export declare function createTaskControlTools(options: SubagentOptions): Tool[];
+export declare function createTaskCancelTool(options: SubagentOptions): Tool;
 /** Executes one already-admitted child task. Concurrency and deadlines belong to SubagentTaskManager. */
 export declare function runSubagentTask(options: SubagentOptions, task: string, signal?: AbortSignal, accessMode?: SubagentAccessMode, agentName?: string, execution?: WorkerExecution): Promise<string>;
 export interface PreparedSubagentTask {

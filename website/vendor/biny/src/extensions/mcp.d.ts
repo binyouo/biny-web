@@ -1,6 +1,6 @@
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { type Prompt } from "@modelcontextprotocol/sdk/types.js";
-import type { AgentConfig } from "../config/schema.js";
+import type { AgentConfig, McpServerConfig } from "../config/schema.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import { type Tool, type ToolExposure } from "../tools/types.js";
 export type McpTransportKind = "stdio" | "http" | "in-process";
@@ -53,18 +53,21 @@ export declare class McpToolHost {
     private readonly catalogCache;
     private readonly servers;
     private readonly openingClients;
+    private readonly closingClients;
     private registry?;
     private workspaceRoot;
     private closing;
     private readonly listeners;
     private readonly genericTools;
     constructor(catalogCache?: McpToolCatalogCache);
-    attachLocalServer(name: string, identity: string, tools: Tool[], open: () => Promise<{
+    attachLocalServer(name: string, identity: string, tools: Tool[] | undefined, open: () => Promise<{
         transport: Transport;
         close: () => Promise<void>;
     }>): Promise<void>;
     detachLocalServer(name: string): Promise<void>;
     connectConfiguredServers(workspaceRoot: string, config: AgentConfig, registry?: ToolRegistry): Promise<void>;
+    /** 已保存的配置只替换指定连接；旧连接的迟到通知不能发布到新目录。 */
+    configureServers(workspaceRoot: string, config: AgentConfig, names: readonly string[], force?: boolean): Promise<void>;
     /** 为不同 session 创建指向同一 MCP 连接的工具代理。 */
     createTools(): Tool[];
     cachedGenericTools(kind: "resources" | "prompts", create: () => Tool[]): Tool[];
@@ -108,6 +111,8 @@ export declare class McpToolHost {
 }
 /** 通用 resources 工具：列出并读取任意已连接 MCP 服务器暴露的资源。 */
 export declare function createMcpResourceTools(host: McpToolHost): Tool[];
+/** 管理回执沿用实际连接凭据的脱敏规则，包含环境变量展开后的值。 */
+export declare function redactMcpError(error: unknown, servers: readonly McpServerConfig[]): string;
 /** 展开配置值里的 ${VAR} / ${VAR:-default} 环境变量引用。 */
 export declare function expandEnvTemplate(value: string): string;
 export {};

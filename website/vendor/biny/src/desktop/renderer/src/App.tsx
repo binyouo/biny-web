@@ -1,3 +1,4 @@
+import { WindowCapture } from "./components/capture/WindowCapture.js";
 import { ChatResponseContext } from "./chatResponseSettings.js";
 import { ComposerDraftState } from "./components/composer/composerDraft.js";
 import type { ChatResponseSettings } from "../../../config/schema.js";
@@ -10,7 +11,8 @@ import type { ChatResponseSettings } from "../../../config/schema.js";
  */
 import { useThreadBrief } from "./threadBrief/context.js";
 import { hasSubmittedUserMessage } from "./chatModel.js";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { skillActivities } from "./skillActivity.js";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentCapabilitySelection } from "../../../agent/capabilitySelection.js";
 import type { ContextBudgetStatus } from "../../../agent/context/types.js";
 import type { PermissionResult } from "../../../permission/PermissionManager.js";
@@ -28,6 +30,8 @@ import type {
   DesktopSessionMenuAction,
   DesktopSessionWriterConflict,
   DesktopSessionSummary,
+  DesktopSessionMetadataReceipt,
+  DesktopSessionTreePage,
   DesktopRunReceipt,
   DesktopSettingsCloseRequest,
   DesktopSettingsCloseResponse,
@@ -42,7 +46,6 @@ import { DEFAULT_FILE_PANEL_WIDTH } from "../../filePanelSizing.js";
 import { DEFAULT_SIDEBAR_WIDTH } from "../../sidebarSizing.js";
 import { AppearanceProvider } from "./AppearanceProvider.js";
 import { useDesktopAppearance } from "./useDesktopAppearance.js";
-import { normalizeAppearancePreference } from "../../../appearance/preferences.js";
 import {
   createNavigationState,
   pushNavigation,
@@ -52,13 +55,12 @@ import {
 } from "./navigationHistory.js";
 import { collectSessionChanges } from "./sessionChanges.js";
 import { listChangedFiles, type TimelineTurn } from "./sessionTimeline.js";
-import { splitAttachmentReferences, withAttachmentReferences } from "../../attachmentReferences.js";
+import { splitAttachmentReferences } from "../../attachmentReferences.js";
 import { desktopApiVersionMismatchMessage, errorMessage, readDesktopSession } from "./app/desktopApi.js";
 import {
   applyProjectOrder,
   eventsBeforeUserMessage,
   eventsThroughUserMessage,
-  lastReportedInputTokens,
   mergeProject,
   mergeProjectSessionPage,
   replaceProjectSessions,
@@ -66,6 +68,8 @@ import {
   syntheticSession
 } from "./app/desktopState.js";
 import { createSessionTreePageLifetime, type LoadedSessionTreePage } from "./app/sessionTreePageLifetime.js";
+import { applyRuntimeControlReceipt, readRuntimeControlReceipt, taskCancellationNeedsGraphRefresh } from "./app/runtimeControlProjection.js";
+import { useSessionRootPages } from "./app/useSessionRootPages.js";
 import { useDesktopEventBridge } from "./app/useDesktopEventBridge.js";
 import { useCompactionCommand } from "./app/useCompactionCommand.js";
 import type { RecipeNotice, SkillExtractionCardState } from "./app/useDesktopEventBridge.js";
@@ -74,19 +78,20 @@ import { useDesktopSettingsActions } from "./app/useDesktopSettingsActions.js";
 import { useSidebarLayout } from "./app/useSidebarLayout.js";
 import { Composer, type ComposerHandle, type ComposerMemoryState } from "./components/Composer.js";
 import { WorkspaceContextBar } from "./components/project/WorkspaceContextBar.js";
-import { resolveContextCapacity, type ContextUsage } from "./usagePresentation.js";
+import { NewProjectDialog } from "./components/project/NewProjectDialog.js";
+import { resolveSessionContextUsage, type ContextUsage } from "./usagePresentation.js";
 import { DesktopShell } from "./components/DesktopShell.js";
 import { Sidebar } from "./components/Sidebar.js";
-import { SkillHubView } from "./components/SkillHubView.js";
 import { Workspace, type PendingPrompt } from "./components/Workspace.js";
 import { DesktopToast } from "./components/overlays/DesktopToast.js";
 import { RenameOverlay } from "./components/overlays/RenameOverlay.js";
 import { SearchOverlay } from "./components/overlays/SearchOverlay.js";
 import { SlashResultOverlay } from "./components/overlays/SlashResultOverlay.js";
-import { TimeCluesDialog } from "./components/overlays/TimeCluesDialog.js";
 import { MessageReferencesDialog } from "./components/overlays/MessageReferencesDialog.js";
 import { DateReferenceDetailDialog } from "./components/overlays/DateReferenceDetailDialog.js";
 import { SettingsOverlay, type SettingsTab } from "./components/settings/SettingsOverlay.js";
+import { warmSettingsSnapshot } from "./components/settings/SettingsDraftProvider.js";
+import { settingsPageNeedsSnapshot } from "./components/settings/settingsData.js";
 import { useWorkspaceInspector } from "./components/workspace/useWorkspaceInspector.js";
 import { RenderingPreviewContext } from "./components/RenderingPreviewContext.js";
 import { sessionGoalSlashFeedback } from "./components/workspace/sessionGoalControl.js";
@@ -101,7 +106,10 @@ interface RenameTarget {
   metadataRevision?: string;
 }
 
-type DesktopPage = Exclude<DesktopActiveView, "runtime">;
+function readLastFastMode(): boolean {
+  try { return window.localStorage.getItem("biny.lastFastMode") === "true"; }
+  catch { return false; }
+}
 
 export function App({ settingsEnabled = true }: { settingsEnabled?: boolean }): React.JSX.Element {
   if (window.location.hash === "#/quick-chat") return <QuickChatApp />;
@@ -114,9 +122,16 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const [sidebarSessions, setSidebarSessions] = useState<DesktopSessionSummary[]>([]);
   const [workspace, setWorkspace] = useState<DesktopWorkspaceSnapshot>();
   const [sessionTreePages] = useState(createSessionTreePageLifetime);
+  const { states: sessionRootPages, adopt: adoptSessionRootPage, reset: resetSessionRootPages, invalidate: invalidateSessionRootPage, load: loadProjectSessions, loadedIds: loadedRootIds } = useSessionRootPages(sessionTreePages, sidebarSessions, setSidebarSessions);
   useEffect(() => () => sessionTreePages.replaceAll(), [sessionTreePages]);
-  const [composerSkillWarnings, setComposerSkillWarnings] = useState<string[]>([]);
-  const [composerSkills, setComposerSkills] = useState<DesktopSkillCatalogEntry[]>([]);
+  const [composerCatalog, setComposerCatalog] = useState<{
+    projectId: string; skills: DesktopSkillCatalogEntry[]; tools: DesktopToolCatalogEntry[]; warnings: string[];
+  }>();
+  // 已加载目录也属于原工作区；切换后的首帧不能把旧选项交给新 Composer。
+  const { skills: composerSkills, tools: composerTools, warnings: composerSkillWarnings } = useMemo(() => (
+    composerCatalog?.projectId === workspace?.project.id && composerCatalog
+      ? composerCatalog : { skills: [], tools: [], warnings: [] }
+  ), [composerCatalog, workspace?.project.id]);
   const skillDescriptions = useMemo(() => new Map(composerSkills.map((skill) => [skill.name, skill.description])), [composerSkills]);
   const skillLabels = useMemo(() => {
     const labels = new Map<string, string>();
@@ -127,12 +142,13 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     }
     return labels;
   }, [composerSkills]);
-  const [composerTools, setComposerTools] = useState<DesktopToolCatalogEntry[]>([]);
-  const [composerCatalogNonce, setComposerCatalogNonce] = useState(0);
+  const [composerCatalogNonce, setComposerCatalogNonce] = useState({ skills: 0, tools: 0 });
   const [document, setDocument] = useState<DesktopSessionDocument>();
   const documentRef = useRef<DesktopSessionDocument | undefined>(undefined);
   const [writerConflict, setWriterConflict] = useState<DesktopSessionWriterConflict>();
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
+  const [lastFastMode, setLastFastMode] = useState(readLastFastMode);
+  const [fastModeOverride, setFastModeOverride] = useState<{ sessionId?: string; value: boolean }>();
   const [loading, setLoading] = useState(true);
   // 启动与后续会话加载分开，避免导航时再次隐藏整个客户端。
   const [starting, setStarting] = useState(true);
@@ -141,8 +157,8 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const [chatResponse, setChatResponse] = useState<ChatResponseSettings>();
   const [appearanceError, setAppearanceError] = useState<string>();
   const appearance = useDesktopAppearance(setAppearanceError);
-  const { themePreference, fontPreference, appearancePreference } = appearance.snapshot;
-  const { changeThemePreference, changeFontPreference, changeAppearancePreference, bootstrap: bootstrapAppearance, adopt: adoptAppearance } = appearance;
+  const { themePreference, fontPreference } = appearance.snapshot;
+  const { changeThemePreference, changeFontPreference, bootstrap: bootstrapAppearance, adopt: adoptAppearance } = appearance;
   const [focusToken, setFocusToken] = useState(0);
   const [composerDrafts] = useState(() => new Map<string, ComposerDraftState>());
   const [composerDraft, setComposerDraft] = useState<string>();
@@ -160,17 +176,18 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const [projectBranches, setProjectBranches] = useState<DesktopGitBranch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [timeCluesOpen, setTimeCluesOpen] = useState(false);
   const [settingsTargetTab, setSettingsTargetTab] = useState<SettingsTab>();
   const [temporalSourceTarget, setTemporalSourceTarget] = useState<{ sessionId: string; messageId: string }>();
-  const [messageReferencesUri, setMessageReferencesUri] = useState<string>();
+  const [messageReferencesTarget, setMessageReferencesTarget] = useState<{ projectId: string; uri: string }>();
+  const messageReferencesRequestRef = useRef(0);
   const [dateReferenceUri, setDateReferenceUri] = useState<string>();
   const [settingsCloseRequest, setSettingsCloseRequest] = useState<DesktopSettingsCloseRequest>();
   const browserSelectionPending = useRef<string | undefined>(undefined);
   const [pendingBrowserProject, setPendingBrowserProject] = useState<string>();
+  const [pendingPreviewBrowser, setPendingPreviewBrowser] = useState<{ projectId: string; sessionId?: string; request: number }>();
   const [runtimePanelOpen, setRuntimePanelOpen] = useState(false);
-  const [page, setPage] = useState<DesktopPage>("chat");
   const [contextBudget, setContextBudget] = useState<ContextBudgetStatus>();
   const [draftMemoryOverride, setDraftMemoryOverride] = useState<boolean>();
   const [memoryToggleBusy, setMemoryToggleBusy] = useState(false);
@@ -180,6 +197,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const [warning, setWarning] = useState<string>();
   /** 当前选中会话的 Recipe 提示卡；换会话清空，事件桥和历史读取共同填充。 */
   const [recipeNotices, setRecipeNotices] = useState<RecipeNotice[]>([]);
+  const dismissedRecipeIdsRef = useRef(new Set<string>());
   /** 技能提取（自进化）进度卡；换会话与新一轮 run.started 时清空。 */
   const [skillExtraction, setSkillExtraction] = useState<SkillExtractionCardState>();
   const selectedRef = useRef<string | undefined>(undefined);
@@ -189,8 +207,16 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const navigationRef = useRef<DesktopNavigationState>(createNavigationState());
   const [_navigationState, setNavigationState] = useState<DesktopNavigationState>(() => createNavigationState());
   const loadRequestRef = useRef(0);
-  const [pendingNavigation, setPendingNavigation] = useState<DesktopNavigationTarget>();
+  const [pendingNavigation, setPendingNavigationState] = useState<DesktopNavigationTarget>();
+  const pendingNavigationRef = useRef<DesktopNavigationTarget | undefined>(undefined);
+  const setPendingNavigation = useCallback((target: DesktopNavigationTarget | undefined): void => {
+    pendingNavigationRef.current = target;
+    setPendingNavigationState(target);
+  }, []);
+  // Removing one project must retire its reads/receipts without cancelling another project's intent.
+  const projectRemovalRef = useRef(new Map<string, object>());
   const branchRequestRef = useRef(0);
+  const branchProjectRef = useRef<string | undefined>(undefined);
   const menuActionRef = useRef<(action: DesktopMenuAction) => void>(() => undefined);
 
   const {
@@ -205,6 +231,9 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
 
   const openSettings = useCallback((targetTab?: SettingsTab): void => {
     if (!settingsEnabled) return;
+    // 点击即预热快照 IPC，弹窗挂载时数据通常已就绪或在路上；dialog 绘制本身
+    // 也要一帧时间，足以盖掉大部分可见加载态。设置本身不是静态的，仍会后台校验。
+    if (targetTab && settingsPageNeedsSnapshot(targetTab)) warmSettingsSnapshot(projectRef.current, selectedRef.current);
     setSettingsTargetTab(targetTab);
     setSettingsOpen(true);
   }, [settingsEnabled]);
@@ -233,18 +262,6 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     setSearchOpen(false);
   }, []);
 
-  const openExtensions = useCallback((): void => {
-    loadRequestRef.current += 1;
-    setPendingNavigation(undefined);
-    setPage("extensions");
-    setRuntimePanelOpen(false);
-    setLoading(false);
-    setSearchOpen(false);
-    setSettingsOpen(false);
-    setSettingsTargetTab(undefined);
-    void window.biny.setActiveView("extensions").catch((error) => setWarning(errorMessage(error)));
-  }, []);
-
   useEffect(() => {
     documentRef.current = document;
   }, [document]);
@@ -260,79 +277,86 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   }, [selectedSessionId]);
 
 
-  // 换会话时清掉上一会话的 Recipe 卡片与技能提取卡；新会话的卡片由历史读取和事件桥共同收集。
+  // 换项目或会话时清掉上一会话的卡片和已处理的 Recipe。
   useEffect(() => {
+    dismissedRecipeIdsRef.current.clear();
     setRecipeNotices([]);
     setSkillExtraction(undefined);
-  }, [selectedSessionId]);
+  }, [selectedSessionId, workspace?.project.id]);
 
   useEffect(() => {
     const projectId = workspace?.project.id;
     const sessionId = selectedSessionId;
-    if (!projectId || !sessionId || page !== "chat") return;
+    if (!projectId || !sessionId) return;
     let cancelled = false;
     void window.biny.recipeSuggestions(projectId, sessionId).then((recipes) => {
       if (cancelled) return;
       setRecipeNotices((current) => {
+        if (cancelled) return current;
         const seen = new Set(current.map((notice) => notice.id));
-        return [...current, ...recipes.filter((recipe) => !seen.has(recipe.id)).map((recipe) => ({ ...recipe, sessionId }))];
+        return [...current, ...recipes.filter((recipe) => !seen.has(recipe.id) && !dismissedRecipeIdsRef.current.has(recipe.id)).map((recipe) => ({ ...recipe, sessionId }))];
       });
     }).catch((error: unknown) => {
       if (!cancelled) setWarning(errorMessage(error));
     });
     return () => { cancelled = true; };
-  }, [page, selectedSessionId, workspace?.project.id]);
+  }, [selectedSessionId, workspace?.project.id]);
 
   const selectedSession = workspace?.sessions.find((session) => session.id === selectedSessionId)
     ?? (document?.session.id === selectedSessionId ? document?.session : undefined);
+  const composerFastMode = fastModeOverride !== undefined && fastModeOverride.sessionId === selectedSessionId
+    ? fastModeOverride.value
+    : selectedSession?.fastMode ?? lastFastMode;
   // Composer 归属的项目：未进入会话时跟随未发送草稿的目标项目（缺省回落到当前工作区项目），
   // 进入会话后固定为工作区项目。同一项目也驱动顶栏的项目/分支选择器。
   const composerProject = selectedSessionId === undefined && draftProjectId
     ? projects.find((project) => project.id === draftProjectId) ?? workspace?.project
     : workspace?.project;
+  // Branch reads follow the committed composer target, including an unsent draft's project.
+  useLayoutEffect(() => {
+    branchProjectRef.current = composerProject?.id;
+    return () => { branchProjectRef.current = undefined; };
+  }, [composerProject?.id]);
   const composerResourceRevision = workspace?.sessionRuntimes?.[selectedSessionId ?? ""]?.resourceReadiness?.revision
     ?? workspace?.runtime?.resourceReadiness?.revision;
 
   useEffect(() => {
     let active = true;
     const projectId = workspace?.project.id;
-    if (!projectId || page !== "chat") {
-      setComposerSkillWarnings([]);
-      setComposerSkills([]);
-      setComposerTools([]);
-      return () => { active = false; };
+    if (!projectId) {
+      setComposerCatalog(undefined);
+      return;
     }
-    // 设置关闭后统一刷新；打开设置时不再额外扫描一次相同目录。
-    if (settingsOpen) return () => { active = false; };
-    void Promise.all([
-      window.biny.skillCatalog(projectId),
-      window.biny.skillSettings(projectId),
-      window.biny.toolCatalog(projectId)
-    ]).then(([catalog, settings, tools]) => {
-      if (!active) return;
-      const enabledById = new Map(settings.activations.map((activation) => [activation.id, activation.enabled]));
-      setComposerSkillWarnings(catalog.warnings);
-      setComposerSkills(catalog.skills.filter((skill) => enabledById.get(skill.id) !== false));
-      setComposerTools(tools);
-    }).catch((error) => {
-      if (!active) return;
-      setComposerSkillWarnings([]);
-      setComposerSkills([]);
-      setComposerTools([]);
-      setWarning(`无法加载技能补全：${errorMessage(error)}`);
-    });
+    void Promise.all([window.biny.skillCatalog(projectId), window.biny.skillSettings(projectId)])
+      .then(([catalog, settings]) => {
+        if (!active) return;
+        const enabledById = new Map(settings.activations.map(activation => [activation.id, activation.enabled]));
+        setComposerCatalog(current => ({ projectId, warnings: catalog.warnings,
+          skills: catalog.skills.filter(skill => enabledById.get(skill.id) !== false),
+          tools: current?.projectId === projectId ? current.tools : [] }));
+      }).catch(error => { if (active) setWarning(`无法加载技能补全：${errorMessage(error)}`); });
     return () => { active = false; };
-  }, [
-    composerCatalogNonce,
-    page,
-    settingsOpen,
-    workspace?.project.id,
-    composerResourceRevision
-  ]);
+  }, [composerCatalogNonce.skills, workspace?.project.id, composerResourceRevision]);
 
-  /** 能力菜单的刷新按钮：强制重拉工具/技能目录（MCP 重连后目录可能变化）。 */
-  const refreshComposerCatalog = useCallback((): void => {
-    setComposerCatalogNonce((nonce) => nonce + 1);
+  useEffect(() => {
+    let active = true;
+    const projectId = workspace?.project.id;
+    if (!projectId) return;
+    void window.biny.toolCatalog(projectId).then(tools => {
+      if (!active) return;
+      setComposerCatalog(current => ({ projectId, tools,
+        skills: current?.projectId === projectId ? current.skills : [],
+        warnings: current?.projectId === projectId ? current.warnings : [] }));
+    }).catch(error => { if (active) setWarning(`无法加载工具目录：${errorMessage(error)}`); });
+    return () => { active = false; };
+  }, [composerCatalogNonce.tools, workspace?.project.id, composerResourceRevision]);
+
+  const refreshComposerCatalog = useCallback((scope: "skills" | "tools" | "all" = "all", projectId?: string): void => {
+    if (projectId !== undefined && projectId !== projectRef.current) return;
+    setComposerCatalogNonce(current => ({
+      skills: current.skills + (scope !== "tools" ? 1 : 0),
+      tools: current.tools + (scope !== "skills" ? 1 : 0)
+    }));
   }, []);
 
   const commitNavigation = useCallback((next: DesktopNavigationState): void => {
@@ -342,66 +366,84 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
 
   const mergeWorkspaceProject = useCallback((snapshot: DesktopWorkspaceSnapshot): void => {
     sessionTreePages.replaceProject(snapshot.project.id, snapshot.sessions);
+    adoptSessionRootPage(snapshot);
     setProjects((current) => mergeProject(current, snapshot.project));
     setSidebarSessions((current) => snapshot.sessionPage
-      ? replaceProjectSessionRoots(current, snapshot.project.id, snapshot.sessionPage.sessions, snapshot.sessions)
+      ? replaceProjectSessionRoots(current, snapshot.project.id, snapshot.sessionPage.sessions, snapshot.sessions, loadedRootIds(snapshot.project.id))
       : replaceProjectSessions(current, snapshot.project.id, snapshot.sessions));
     setWorkspace(snapshot);
-  }, [sessionTreePages]);
+  }, [adoptSessionRootPage, loadedRootIds, sessionTreePages]);
 
   const mergeProjectSnapshot = useCallback((snapshot: DesktopWorkspaceSnapshot): void => {
     sessionTreePages.replaceProject(snapshot.project.id, snapshot.sessions);
+    adoptSessionRootPage(snapshot);
     setProjects((current) => mergeProject(current, snapshot.project));
     setSidebarSessions((current) => snapshot.sessionPage
-      ? replaceProjectSessionRoots(current, snapshot.project.id, snapshot.sessionPage.sessions, snapshot.sessions)
+      ? replaceProjectSessionRoots(current, snapshot.project.id, snapshot.sessionPage.sessions, snapshot.sessions, loadedRootIds(snapshot.project.id))
       : replaceProjectSessions(current, snapshot.project.id, snapshot.sessions));
     if (projectRef.current === snapshot.project.id) setWorkspace(snapshot);
-  }, [sessionTreePages]);
+  }, [adoptSessionRootPage, loadedRootIds, sessionTreePages]);
 
-  useEffect(() => {
-    const subscribe = window.biny.onApplicationImportsChanged;
-    if (!subscribe) return;
-    let active = true;
-    let generation = 0;
-    const unsubscribe = subscribe(() => {
-      const request = ++generation;
-      void window.biny.bootstrap().then(bootstrap => {
-        if (!active || request !== generation) return;
-        setProjects(bootstrap.projects);
-        sessionTreePages.replaceAll(bootstrap.sidebarSessions);
-        setSidebarSessions(bootstrap.sidebarSessions);
-        if (bootstrap.workspace && projectRef.current === bootstrap.workspace.project.id) setWorkspace(bootstrap.workspace);
-      }).catch(error => { if (active && request === generation) setWarning(errorMessage(error)); });
+  const mergeSessionCatalog = useCallback((page: DesktopSessionTreePage): void => {
+    if (page.revisionChanged) throw new Error("会话列表已更新，请重新加载重试。");
+    const sessions = [...new Map([...page.sessions, ...(page.pinnedSessions ?? []), ...(page.supplementalSessions ?? [])]
+      .map(session => [session.id, session])).values()];
+    sessionTreePages.replaceProject(page.projectId, sessions);
+    adoptSessionRootPage({ project: { id: page.projectId }, sessions, sessionPage: page });
+    setSidebarSessions(current => replaceProjectSessionRoots(current, page.projectId, page.sessions, sessions, loadedRootIds(page.projectId)));
+    setWorkspace(current => current?.project.id === page.projectId ? { ...current, sessions, sessionPage: page } : current);
+  }, [adoptSessionRootPage, loadedRootIds, sessionTreePages]);
+
+  const readSessionCatalog = useCallback(async (projectId: string, sessionIds: string[]): Promise<(allowPublish?: boolean) => void> => {
+    const ownsProject = sessionTreePages.captureCatalogProject(projectId);
+    const isCurrent = sessionTreePages.captureCatalogPublication(projectId);
+    const read = (ids: string[]): Promise<DesktopSessionTreePage> => window.biny.listSessionTreePage(projectId, {
+      limit: 32, includeArchived: true, includePinnedSessions: true,
+      sessionIds: ids
     });
-    return () => { active = false; unsubscribe(); };
-  }, [sessionTreePages]);
+    const page = await read([...new Set([...sessionTreePages.loadedSessionIds(projectId), ...sessionIds])]);
+    // 子页可能在 IPC 完成后的回调之间扩大读取范围；必须在实际发布时校验。
+    return (allowPublish = true) => {
+      if (!ownsProject()) return;
+      if (!allowPublish || !isCurrent()) {
+        for (const sessionId of sessionIds.length ? sessionIds : [undefined]) {
+          sessionTreePages.refreshCatalog(projectId, read, mergeSessionCatalog, error => setWarning(errorMessage(error)), sessionId);
+        }
+        return;
+      }
+      mergeSessionCatalog(page);
+    };
+  }, [mergeSessionCatalog, sessionTreePages]);
 
   const threadBriefState = useThreadBrief();
   const briefProjectIds = threadBriefState?.snapshot?.projects.map((project) => project.projectId).sort().join("\0") ?? "";
   useEffect(() => {
     let cancelled = false;
     for (const projectId of briefProjectIds.split("\0").filter(Boolean)) {
-      void window.biny.refreshProject(projectId).then((snapshot) => {
-        if (!cancelled) mergeProjectSnapshot(snapshot);
+      void readSessionCatalog(projectId, []).then((publish) => {
+        if (!cancelled) publish();
       }).catch(() => undefined);
     }
     return () => { cancelled = true; };
-  }, [briefProjectIds, mergeProjectSnapshot]);
+  }, [briefProjectIds, readSessionCatalog]);
 
   const loadProjectBranches = useCallback(async (projectId: string): Promise<void> => {
+    // A late branch-operation receipt must not start a read for an old target or
+    // supersede the current target's pending read.
+    if (branchProjectRef.current !== projectId) return;
     const request = branchRequestRef.current + 1;
     branchRequestRef.current = request;
     setBranchesLoading(true);
     try {
       const branches = await window.biny.listProjectBranches(projectId);
-      if (branchRequestRef.current === request) setProjectBranches(branches);
+      if (branchProjectRef.current === projectId && branchRequestRef.current === request) setProjectBranches(branches);
     } catch (error) {
-      if (branchRequestRef.current === request) {
+      if (branchProjectRef.current === projectId && branchRequestRef.current === request) {
         setProjectBranches([]);
         setWarning(errorMessage(error));
       }
     } finally {
-      if (branchRequestRef.current === request) setBranchesLoading(false);
+      if (branchProjectRef.current === projectId && branchRequestRef.current === request) setBranchesLoading(false);
     }
   }, []);
 
@@ -429,19 +471,27 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     setPlanProjection(projection);
   }, []);
 
+  const runtimeProjectionRequest = useRef(0);
   const refreshRuntimeProjection = useCallback(async (): Promise<void> => {
     const projectId = projectRef.current;
     if (!projectId) return;
+    const navigationRequest = loadRequestRef.current;
+    const request = ++runtimeProjectionRequest.current;
     const runtimeProjection = await window.biny.runtimeProjection(projectId);
-    setWorkspace((current) => current?.project.id === projectId ? { ...current, runtimeProjection } : current);
+    // Recheck at commit time: a newer read or navigation can retire a queued update.
+    setWorkspace((current) => current?.project.id === projectId
+      && projectRef.current === projectId && loadRequestRef.current === navigationRequest
+      && runtimeProjectionRequest.current === request ? { ...current, runtimeProjection } : current);
   }, []);
   const mutateRuntime = useCallback(async (operation: DesktopRuntimeMutation, payload: Record<string, unknown>): Promise<void> => {
     const projectId = projectRef.current;
     if (!projectId) throw new Error("当前没有打开的项目。");
     const navigationRequest = loadRequestRef.current;
+    const projectionRequestAtStart = runtimeProjectionRequest.current;
     const goalRequestIsCurrent = (): boolean => projectRef.current === projectId && selectedRef.current === payload.sessionId && loadRequestRef.current === navigationRequest;
+    let result: unknown;
     try {
-      await window.biny.runtimeMutation(projectId, operation, payload);
+      result = await window.biny.runtimeMutation(projectId, operation, payload);
     } catch (error) {
       if (operation.startsWith("session.goal.") && goalRequestIsCurrent()) {
         try { await refreshPlans(); }
@@ -449,11 +499,25 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       }
       throw error;
     }
+    if (operation === "task.cancel" || operation === "graph.pause" || operation === "graph.resume") {
+      if (projectRef.current !== projectId || loadRequestRef.current !== navigationRequest) return;
+      const receipt = readRuntimeControlReceipt(operation, payload, result);
+      const refreshRequested = runtimeProjectionRequest.current !== projectionRequestAtStart;
+      // 在途全量读取不能覆盖窄回执；操作期间新增的刷新需求合并补读一次。
+      runtimeProjectionRequest.current += 1;
+      setWorkspace((current) => {
+        if (current?.project.id !== projectId || projectRef.current !== projectId || loadRequestRef.current !== navigationRequest) return current;
+        const runtimeProjection = applyRuntimeControlReceipt(current.runtimeProjection, receipt);
+        return runtimeProjection === current.runtimeProjection ? current : { ...current, runtimeProjection };
+      });
+      if (refreshRequested || operation === "task.cancel" && taskCancellationNeedsGraphRefresh(workspace?.runtimeProjection, payload.taskRunId)) await refreshRuntimeProjection();
+      return;
+    }
     if (operation.startsWith("session.goal.")) {
       if (goalRequestIsCurrent()) await refreshPlans();
     } else if (operation.startsWith("plan.")) await refreshPlans();
     else await refreshRuntimeProjection();
-  }, [refreshRuntimeProjection, refreshPlans]);
+  }, [refreshRuntimeProjection, refreshPlans, workspace?.runtimeProjection]);
 
   const reportRuntimeError = useCallback((error: unknown): void => {
     setWarning(errorMessage(error));
@@ -521,7 +585,6 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     testModelConfiguration,
     updateMemoryEntry
   } = useDesktopSettingsActions({
-    mergeProjectSnapshot,
     projectIdRef: projectRef,
     setWorkspace
   });
@@ -534,18 +597,19 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     nextWorkspace?: DesktopWorkspaceSnapshot | Promise<DesktopWorkspaceSnapshot>,
     activeView: DesktopActiveView = "chat"
   ): Promise<boolean> => {
+    const projectLifetime = projectRemovalRef.current.get(projectId);
     const request = activeRequest ?? loadRequestRef.current + 1;
     if (activeRequest === undefined) {
       loadRequestRef.current = request;
       setPendingNavigation(undefined);
     }
-    if (loadRequestRef.current !== request) return false;
+    if (loadRequestRef.current !== request || projectRemovalRef.current.get(projectId) !== projectLifetime) return false;
     memoryToggleRequestRef.current += 1;
     setMemoryToggleBusy(false);
     if (showLoader) setLoading(true);
     try {
       const { document: nextDocument, workspace: resolvedWorkspace } = await readDesktopSession(window.biny, projectId, sessionId, nextWorkspace);
-      if (loadRequestRef.current !== request) return false;
+      if (loadRequestRef.current !== request || projectRemovalRef.current.get(projectId) !== projectLifetime) return false;
       if (resolvedWorkspace) {
         if (projectRef.current !== resolvedWorkspace.project.id) {
           permissionModeRequestRef.current += 1;
@@ -553,7 +617,6 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         projectRef.current = resolvedWorkspace.project.id;
         mergeWorkspaceProject(resolvedWorkspace);
       }
-      setPage(activeView === "extensions" ? "extensions" : "chat");
       setRuntimePanelOpen(activeView === "runtime");
       selectedRef.current = sessionId;
       setSelectedSessionId(sessionId);
@@ -580,12 +643,12 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       void window.biny.commitSelection(projectId, sessionId, activeView).catch((error) => setWarning(errorMessage(error)));
       return true;
     } catch (error) {
-      if (loadRequestRef.current !== request) return false;
+      if (loadRequestRef.current !== request || projectRemovalRef.current.get(projectId) !== projectLifetime) return false;
       throw error;
     } finally {
       if (showLoader && loadRequestRef.current === request) setLoading(false);
     }
-  }, [mergeWorkspaceProject, sessionTreePages]);
+  }, [mergeWorkspaceProject, sessionTreePages, setPendingNavigation]);
 
   const adoptWorkspace = useCallback(async (
     snapshot: DesktopWorkspaceSnapshot,
@@ -604,7 +667,6 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     }
     memoryToggleRequestRef.current += 1;
     setMemoryToggleBusy(false);
-    setPage("chat");
     setRuntimePanelOpen(false);
     projectRef.current = snapshot.project.id;
     selectedRef.current = undefined;
@@ -620,10 +682,11 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     setLoading(false);
     void window.biny.commitSelection(snapshot.project.id, undefined, "chat").catch((error) => setWarning(errorMessage(error)));
     return true;
-  }, [mergeWorkspaceProject, openSession]);
+  }, [mergeWorkspaceProject, openSession, setPendingNavigation]);
 
-  const openNavigationTarget = useCallback(async (target: DesktopNavigationTarget): Promise<boolean> => {
+  const openNavigationTarget = useCallback(async (target: DesktopNavigationTarget, isolation?: "shared" | "worktree"): Promise<boolean> => {
     // 从项目选择到会话读取共用同一个请求号，较早的跨项目请求不能在较新的点击后重新取得提交权。
+    const projectLifetime = projectRemovalRef.current.get(target.projectId);
     const request = loadRequestRef.current + 1;
     loadRequestRef.current = request;
     setPendingNavigation(target);
@@ -631,7 +694,6 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     if (startingCurrentDraft) {
       // 当前项目的新建任务应立即呈现空白输入框。startDraft 只负责重置旧运行时，
       // 这里不能把它伪装成“恢复会话”，也不能继续显示上一段聊天正文。
-      setPage("chat");
       setRuntimePanelOpen(false);
       selectedRef.current = undefined;
       setSelectedSessionId(undefined);
@@ -647,14 +709,13 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       setLoading(false);
     } else {
       // 选择意图立即反馈到侧栏；正文和项目身份只在最新读取成功后一起提交。
-      setPage("chat");
       setRuntimePanelOpen(false);
       setLoading(true);
     }
     try {
       if (target.sessionId === undefined) {
-        const snapshot = await window.biny.startDraft(target.projectId);
-        if (loadRequestRef.current !== request) return false;
+        const snapshot = await window.biny.startDraft(target.projectId, isolation);
+        if (loadRequestRef.current !== request || projectRemovalRef.current.get(target.projectId) !== projectLifetime) return false;
         const adopted = await adoptWorkspace(snapshot, undefined, request);
         if (adopted) setFocusToken((value) => value + 1);
         return adopted;
@@ -664,7 +725,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       }
       return await openSession(target.projectId, target.sessionId, false, request, window.biny.selectProject(target.projectId));
     } catch (error) {
-      if (loadRequestRef.current !== request) return false;
+      if (loadRequestRef.current !== request || projectRemovalRef.current.get(target.projectId) !== projectLifetime) return false;
       throw error;
     } finally {
       if (loadRequestRef.current === request) {
@@ -672,7 +733,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         setPendingNavigation(undefined);
       }
     }
-  }, [adoptWorkspace, openSession]);
+  }, [adoptWorkspace, openSession, setPendingNavigation]);
 
   useEffect(() => {
     let active = true;
@@ -680,13 +741,13 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       if (!active) return;
       setVersion(bootstrap.version);
       setProjects(bootstrap.projects);
-      sessionTreePages.replaceAll(bootstrap.sidebarSessions);
+      sessionTreePages.replaceAll(bootstrap.sidebarSessions, bootstrap.projects.map(project => project.id));
+        resetSessionRootPages(bootstrap.workspace);
       setSidebarSessions(bootstrap.sidebarSessions);
       setSidebarExpandedWidth(bootstrap.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH);
       setFilePanelWidth(bootstrap.filePanelWidth ?? DEFAULT_FILE_PANEL_WIDTH);
       bootstrapAppearance(bootstrap);
       setChatResponse(bootstrap.chatResponse);
-      setPage(bootstrap.activeView === "extensions" ? "extensions" : "chat");
       setRuntimePanelOpen(bootstrap.activeView === "runtime" && Boolean(bootstrap.workspace));
       // 没有可恢复的会话时默认落在新会话欢迎页，而不是空白占位；恢复会话时 hero 由选中会话关闭。
       if (!bootstrap.selectedSessionId) setHeroStart(true);
@@ -718,7 +779,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       if (active) setStarting(false);
     });
     return () => { active = false; };
-  }, [bootstrapAppearance, commitNavigation, mergeWorkspaceProject, openSession, sessionTreePages, setSidebarExpandedWidth]);
+  }, [bootstrapAppearance, commitNavigation, mergeWorkspaceProject, openSession, resetSessionRootPages, sessionTreePages, setSidebarExpandedWidth]);
 
   // 生成错误横幅（会话瞬态）：由事件桥在 live 失败事件到达时置位、新一轮开始（run.started）
   // 时清除，与 document 的重放/终态刷新完全解耦——历史重放永不弹，横幅也不会被刷新闪退掉。
@@ -727,6 +788,8 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const clearGenerationError = useCallback((): void => {
     setGenerationError(undefined);
   }, []);
+  // 先清掉旧会话的瞬态错误，再由事件桥回放新会话可能已经失败的运行。
+  useEffect(clearGenerationError, [clearGenerationError, selectedSessionId, workspace?.project.id]);
   const compactionCommand = useCompactionCommand({
     projectId: selectedSessionId === undefined ? draftProjectId ?? workspace?.project.id : workspace?.project.id,
     sessionId: selectedSessionId,
@@ -746,12 +809,12 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
 
   useEffect(() => { void refreshPlans().catch(reportEventError); }, [selectedSessionId, workspace?.project.id, refreshPlans, reportEventError]);
 
-  useDesktopEventBridge({
+  const invalidateProjectRefresh = useDesktopEventBridge({
     onRuntimeProjectionChanged: refreshPlans,
     activeProjectIdRef: projectRef,
     selectedSessionIdRef: selectedRef,
     documentRef,
-    mergeProjectSnapshot,
+    readSessionCatalog,
     onError: reportEventError,
     setContextBudget,
     setDocument,
@@ -779,25 +842,37 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   }), [settingsEnabled]);
 
   const openProject = useCallback(async (): Promise<void> => {
+    const request = ++loadRequestRef.current;
+    setPendingNavigation(undefined);
+    setLoading(false);
     try {
       const snapshot = await window.biny.openProject();
       if (snapshot) {
-        await adoptWorkspace(snapshot);
+        // 导入已完成时保留项目入口，但较早的回执不能重新取得导航权或覆盖已有摘要。
+        setProjects((current) => current.some((project) => project.id === snapshot.project.id)
+          ? current : mergeProject(current, snapshot.project));
+        // 意图仍归本次打开所有时再提交；提交使用新请求号，隔离等待期间旧工作区发出的回执。
+        if (loadRequestRef.current === request) await adoptWorkspace(snapshot);
       }
     } catch (error) {
-      setWarning(errorMessage(error));
+      if (loadRequestRef.current === request) setWarning(errorMessage(error));
     }
   }, [adoptWorkspace]);
 
-  const createEmptyProject = useCallback(async (): Promise<void> => {
-    try {
-      const snapshot = await window.biny.createEmptyProject();
-      if (snapshot) {
-        await adoptWorkspace(snapshot);
-        setFocusToken((value) => value + 1);
-      }
-    } catch (error) {
-      setWarning(errorMessage(error));
+  const createEmptyProject = useCallback((): void => {
+    setNewProjectOpen(true);
+  }, []);
+
+  const submitNewProject = useCallback(async (siteUrl?: string): Promise<void> => {
+    const request = ++loadRequestRef.current;
+    setPendingNavigation(undefined);
+    setLoading(false);
+    const snapshot = await window.biny.createEmptyProject(siteUrl);
+    if (snapshot) {
+      // 创建目录与选择工作区是两件事：后续菜单导航或会话交接不会撤销已创建的项目。
+      setProjects((current) => current.some((project) => project.id === snapshot.project.id)
+        ? current : mergeProject(current, snapshot.project));
+      if (loadRequestRef.current === request && await adoptWorkspace(snapshot)) setFocusToken((value) => value + 1);
     }
   }, [adoptWorkspace]);
 
@@ -811,6 +886,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     }
     setComposerDraft(undefined);
     setDraftProjectId(undefined);
+    const projectLifetime = projectRemovalRef.current.get(projectId);
     const request = loadRequestRef.current + 1;
     loadRequestRef.current = request;
     setPendingNavigation({ projectId });
@@ -819,20 +895,22 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     if (!projectRef.current) setLoading(true);
     try {
       const snapshot = await window.biny.selectProject(projectId);
-      if (loadRequestRef.current === request) await adoptWorkspace(snapshot, undefined, request);
+      if (loadRequestRef.current === request && projectRemovalRef.current.get(projectId) === projectLifetime) await adoptWorkspace(snapshot, undefined, request);
     } catch (error) {
-      if (loadRequestRef.current === request) setWarning(errorMessage(error));
+      if (loadRequestRef.current === request && projectRemovalRef.current.get(projectId) === projectLifetime) setWarning(errorMessage(error));
     } finally {
       if (loadRequestRef.current === request) {
         setLoading(false);
         setPendingNavigation(undefined);
       }
     }
-  }, [adoptWorkspace]);
+  }, [adoptWorkspace, setPendingNavigation]);
 
   const selectComposerProject = useCallback((projectId: string): void => {
     // 新消息尚未生成 session 时，文件夹只是消息归属，不应触发工作区和左侧栏切换。
     if (selectedRef.current === undefined) {
+      // 回填已进入所属草稿；目标切换时不能再次覆盖另一项目保留的输入。
+      setComposerDraft(undefined);
       setDraftProjectId(projectId === projectRef.current ? undefined : projectId);
       return;
     }
@@ -863,7 +941,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     }
   }, [loadProjectBranches, mergeProjectSnapshot]);
 
-  const newTask = useCallback(async (targetProjectId = projectRef.current, topLevel = false): Promise<void> => {
+  const newTask = useCallback(async (targetProjectId = projectRef.current, topLevel = false, isolation?: "shared" | "worktree"): Promise<void> => {
     setRuntimePanelOpen(false);
     setHeroStart(topLevel);
     const projectId = targetProjectId;
@@ -874,7 +952,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     const target: DesktopNavigationTarget = { projectId, sessionId: undefined };
     const previousNavigation = navigationRef.current;
     try {
-      if (await openNavigationTarget(target)) commitNavigation(pushNavigation(previousNavigation, target));
+      if (await openNavigationTarget(target, isolation)) commitNavigation(pushNavigation(previousNavigation, target));
     } catch (error) {
       setWarning(errorMessage(error));
     }
@@ -887,53 +965,145 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     }
     loadRequestRef.current += 1;
     setPendingNavigation(undefined);
-    setPage("chat");
     setSearchOpen(false);
     setLoading(false);
     setRuntimePanelOpen(true);
     void window.biny.setActiveView("runtime").catch((error) => setWarning(errorMessage(error)));
-  }, []);
+  }, [setPendingNavigation]);
 
   const changeRuntimePanelOpen = useCallback((open: boolean): void => {
     setRuntimePanelOpen(open);
     void window.biny.setActiveView(open ? "runtime" : "chat").catch((error) => setWarning(errorMessage(error)));
   }, []);
 
-  const navigateToSession = useCallback(async (projectId: string, sessionId: string): Promise<void> => {
+  const navigateToSession = useCallback(async (projectId: string, sessionId: string): Promise<boolean> => {
     // 当前会话已经在聊天页时，点击同一行不应重新读取正文并切换 loading；否则侧栏会被无意义地重绘一次。
-    if (projectId === projectRef.current && sessionId === selectedRef.current && page === "chat" && !runtimePanelOpen) {
+    if (projectId === projectRef.current && sessionId === selectedRef.current && !runtimePanelOpen) {
       // 点回已显示会话仍是新的导航意图，必须使在途的跨项目读取失效。
       loadRequestRef.current += 1;
       setPendingNavigation(undefined);
       setLoading(false);
-      return;
+      return true;
     }
     const previousNavigation = navigationRef.current;
     const target: DesktopNavigationTarget = { projectId, sessionId };
     try {
-      if (await openNavigationTarget(target)) commitNavigation(pushNavigation(previousNavigation, target));
+      const opened = await openNavigationTarget(target);
+      if (opened) commitNavigation(pushNavigation(previousNavigation, target));
+      return opened;
     } catch (error) {
       setWarning(errorMessage(error));
+      return false;
     }
-  }, [commitNavigation, openNavigationTarget, page, runtimePanelOpen]);
+  }, [commitNavigation, openNavigationTarget, runtimePanelOpen, setPendingNavigation]);
 
   useEffect(() => {
-    if (!temporalSourceTarget || document?.session.id !== temporalSourceTarget.sessionId || page !== "chat") return;
+    if (!temporalSourceTarget || document?.session.id !== temporalSourceTarget.sessionId) return;
     const source = [...globalThis.document.querySelectorAll<HTMLElement>("[data-message-id]")]
       .find((element) => element.dataset.messageId === temporalSourceTarget.messageId);
     if (!source) return;
     source.scrollIntoView({ block: "center" });
     source.focus({ preventScroll: true });
     setTemporalSourceTarget(undefined);
-  }, [document, page, temporalSourceTarget]);
+  }, [document, temporalSourceTarget]);
+
+  const mergeSessionMetadata = useCallback((receipt: DesktopSessionMetadataReceipt, expectedRevision?: string): void => {
+    const merge = (session: DesktopSessionSummary): DesktopSessionSummary => session.projectId === receipt.projectId
+      && session.id === receipt.sessionId
+      && (session.metadataRevision === expectedRevision || session.metadataRevision === receipt.metadata.metadataRevision)
+      ? { ...session, ...receipt.metadata } : session;
+    invalidateProjectRefresh(receipt.projectId);
+    sessionTreePages.observe(receipt.projectId, []);
+    setSidebarSessions(current => current.map(merge));
+    setWorkspace(current => current?.project.id === receipt.projectId ? { ...current, sessions: current.sessions.map(merge) } : current);
+    setDocument(current => {
+      if (!current) return current;
+      const session = merge(current.session);
+      return session === current.session ? current : { ...current, session };
+    });
+  }, [invalidateProjectRefresh, sessionTreePages]);
+
+  useEffect(() => {
+    let active = true;
+    let documentGeneration = 0;
+    let settingsGeneration = 0;
+    const unsubscribe = window.biny.onApplicationImportsChanged?.(change => {
+      for (const { projectId, sessionIds: importedIds } of change.projects) {
+        invalidateProjectRefresh(projectId);
+        for (const sessionId of importedIds) sessionTreePages.refreshCatalog(projectId,
+          sessionIds => window.biny.listSessionTreePage(projectId, { limit: 32, includeArchived: true, includePinnedSessions: true, sessionIds }),
+          mergeSessionCatalog, error => { if (active) setWarning(errorMessage(error)); }, sessionId);
+      }
+      if (change.mcpChanged) refreshComposerCatalog("tools");
+      const source = documentRef.current;
+      const projectId = projectRef.current;
+      const sessionId = selectedRef.current;
+      const navigation = loadRequestRef.current;
+      if (source && projectId && sessionId && change.projects.some(project => project.projectId === projectId && project.sessionIds.includes(sessionId))) {
+        const request = ++documentGeneration;
+        void window.biny.openSession(projectId, sessionId).then(next => {
+          if (!active || request !== documentGeneration || navigation !== loadRequestRef.current
+            || projectRef.current !== projectId || selectedRef.current !== sessionId) return;
+          setDocument(current => current?.session.projectId === projectId && current.session.id === sessionId
+            && current.events === source.events && current.liveEvents === source.liveEvents
+            ? { ...next, session: current.session } : current);
+        }).catch(error => {
+          if (active && request === documentGeneration && navigation === loadRequestRef.current
+            && projectRef.current === projectId && selectedRef.current === sessionId) setWarning(errorMessage(error));
+        });
+      }
+      if (change.settingsChanged && projectId) {
+        const request = ++settingsGeneration;
+        const ownsProject = sessionTreePages.captureCatalogProject(projectId);
+        void window.biny.refreshProject(projectId).then(snapshot => {
+          if (!active || request !== settingsGeneration || !ownsProject()) return;
+          setWorkspace(current => current?.project.id === projectId ? { ...current,
+            memory: snapshot.memory, permissionMode: snapshot.permissionMode, capabilityDefaults: snapshot.capabilityDefaults,
+            models: snapshot.models, pickerModels: snapshot.pickerModels, selectedModel: snapshot.selectedModel,
+            connections: snapshot.connections, requiresModelConfiguration: snapshot.requiresModelConfiguration
+          } : current);
+        }).catch(error => { if (active && request === settingsGeneration) setWarning(errorMessage(error)); });
+      }
+    });
+    return () => { active = false; unsubscribe?.(); };
+  }, [invalidateProjectRefresh, mergeSessionCatalog, refreshComposerCatalog, sessionTreePages]);
+
+  const changeFastMode = useCallback(async (fastMode: boolean): Promise<void> => {
+    setLastFastMode(fastMode);
+    try { window.localStorage.setItem("biny.lastFastMode", String(fastMode)); }
+    catch { /* The per-session setting remains available when local storage is unavailable. */ }
+    const pending = { sessionId: selectedSession?.id, value: fastMode };
+    setFastModeOverride(pending);
+    if (!selectedSession) return;
+    const ownsProject = sessionTreePages.captureCatalogProject(selectedSession.projectId);
+    try {
+      const receipt = await window.biny.setSessionFastMode(selectedSession.projectId, selectedSession.id, fastMode, selectedSession.metadataRevision);
+      if (ownsProject()) mergeSessionMetadata(receipt, selectedSession.metadataRevision);
+    } catch (error) {
+      if (ownsProject()) setWarning(errorMessage(error));
+    } finally {
+      setFastModeOverride(current => current === pending ? undefined : current);
+    }
+  }, [mergeSessionMetadata, selectedSession, sessionTreePages]);
 
   const toggleSessionPinned = useCallback(async (session: DesktopSessionSummary, pinned = !session.pinned): Promise<void> => {
+    const ownsProject = sessionTreePages.captureCatalogProject(session.projectId);
     try {
-      mergeProjectSnapshot(await window.biny.pinSession(session.projectId, session.id, pinned, session.metadataRevision));
+      await window.biny.pinSession(session.projectId, session.id, pinned, session.metadataRevision);
+      invalidateProjectRefresh(session.projectId);
+      if (ownsProject()) {
+        sessionTreePages.refreshCatalog(
+          session.projectId,
+          sessionIds => window.biny.listSessionTreePage(session.projectId, { limit: 32, includeArchived: true, includePinnedSessions: true, sessionIds }),
+          mergeSessionCatalog,
+          error => setWarning(`置顶状态已保存，但会话列表刷新失败：${errorMessage(error)}`),
+          session.id
+        );
+      }
     } catch (error) {
       setWarning(errorMessage(error));
     }
-  }, [mergeProjectSnapshot]);
+  }, [invalidateProjectRefresh, mergeSessionCatalog, sessionTreePages]);
 
   const deleteSidebarSessions = useCallback(async (sessions: DesktopSessionSummary[], confirm = true, onStarted?: () => void) => {
     const targets = sessions.map(session => ({ projectId: session.projectId, sessionId: session.id }));
@@ -955,8 +1125,11 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     if (result.cancelled) return result;
     const deleted = new Set(result.deleted.map(target => `${target.projectId}\0${target.sessionId}`));
     for (const projectId of new Set(result.deleted.map(target => target.projectId))) {
+      const retainedIds = sessionTreePages.loadedSessionIds(projectId).filter(id => !deleted.has(`${projectId}\0${id}`));
       sessionTreePages.replaceProject(projectId, []);
-      void window.biny.refreshProject(projectId).then(mergeProjectSnapshot).catch(error => setWarning(errorMessage(error)));
+      invalidateSessionRootPage(projectId);
+      invalidateProjectRefresh(projectId);
+      void readSessionCatalog(projectId, retainedIds).then(publish => publish()).catch(error => setWarning(errorMessage(error)));
     }
     setSidebarSessions(current => current.filter(session => !deleted.has(`${session.projectId}\0${session.id}`)));
     setWorkspace(current => current ? { ...current, sessions: current.sessions.filter(session => !deleted.has(`${session.projectId}\0${session.id}`)) } : current);
@@ -966,7 +1139,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       return `${title}：${failure.error}`;
     }).join("\n"));
     return result;
-  }, [commitNavigation, mergeProjectSnapshot, sessionTreePages]);
+  }, [commitNavigation, invalidateProjectRefresh, invalidateSessionRootPage, readSessionCatalog, sessionTreePages]);
 
   const runSessionAction = useCallback(async (session: DesktopSessionSummary, action: DesktopSessionMenuAction): Promise<void> => {
     try {
@@ -979,11 +1152,22 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         return;
       }
       if (action === "archive" || action === "unarchive") {
-        mergeProjectSnapshot(await window.biny.archiveSession(session.projectId, session.id, action === "archive", session.metadataRevision));
+        const ownsProject = sessionTreePages.captureCatalogProject(session.projectId);
+        await window.biny.archiveSession(session.projectId, session.id, action === "archive", session.metadataRevision);
+        invalidateProjectRefresh(session.projectId);
+        if (ownsProject()) {
+          sessionTreePages.refreshCatalog(
+            session.projectId,
+            sessionIds => window.biny.listSessionTreePage(session.projectId, { limit: 32, includeArchived: true, includePinnedSessions: true, sessionIds }),
+            mergeSessionCatalog,
+            error => setWarning(`归档状态已保存，但会话列表刷新失败：${errorMessage(error)}`),
+            session.id
+          );
+        }
         return;
       }
       if (action === "export-bundle" || action === "export-claude") {
-        mergeProjectSnapshot(await window.biny.exportSession(session.projectId, session.id, action === "export-claude" ? "claude" : "biny"));
+        await window.biny.exportSession(session.projectId, session.id, action === "export-claude" ? "claude" : "biny");
         return;
       }
       if (action === "duplicate") {
@@ -1005,13 +1189,25 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     } catch (error) {
       setWarning(errorMessage(error));
     }
-  }, [adoptWorkspace, commitNavigation, deleteSidebarSessions, mergeProjectSnapshot, toggleSessionPinned]);
+  }, [adoptWorkspace, commitNavigation, deleteSidebarSessions, invalidateProjectRefresh, mergeSessionCatalog, sessionTreePages, toggleSessionPinned]);
 
   const importSessionIntoProject = useCallback(async (projectId: string): Promise<void> => {
+    const projectLifetime = projectRemovalRef.current.get(projectId);
+    let request = ++loadRequestRef.current;
+    setPendingNavigation(undefined);
+    setLoading(false);
     try {
-      if (projectRef.current !== projectId) await adoptWorkspace(await window.biny.selectProject(projectId));
-      openSettings("导入");
-    } catch (error) { setWarning(errorMessage(error)); }
+      if (projectRef.current !== projectId) {
+        const snapshot = await window.biny.selectProject(projectId);
+        if (loadRequestRef.current !== request || projectRemovalRef.current.get(projectId) !== projectLifetime) return;
+        // 提交使用新请求号，隔离等待期间旧工作区发出的发送与命令回执。
+        request = ++loadRequestRef.current;
+        if (!await adoptWorkspace(snapshot, undefined, request)) return;
+      }
+      if (loadRequestRef.current === request && projectRemovalRef.current.get(projectId) === projectLifetime) openSettings("导入");
+    } catch (error) {
+      if (loadRequestRef.current === request && projectRemovalRef.current.get(projectId) === projectLifetime) setWarning(errorMessage(error));
+    }
   }, [adoptWorkspace, openSettings]);
 
   useEffect(() => {
@@ -1026,7 +1222,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     };
   }, [newTask, openProject, openSearch, openSettings, toggleSidebar]);
 
-  const sendPrompt = useCallback(async (input: string, attachments: DesktopAttachment[], delivery?: "steer" | "queue", idempotencyKey?: string, capabilitySelection?: AgentCapabilitySelection): Promise<DesktopRunReceipt> => {
+  const sendPrompt = useCallback(async (input: string, attachments: DesktopAttachment[], delivery?: "steer" | "queue", idempotencyKey?: string, capabilitySelection?: AgentCapabilitySelection, fastMode?: boolean): Promise<DesktopRunReceipt> => {
     const activeProjectId = projectRef.current;
     const projectId = selectedRef.current === undefined
       ? draftProjectId ?? activeProjectId
@@ -1034,6 +1230,9 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     if (!projectId) throw new Error("请先打开一个项目。");
     const switchingDraftProject = projectId !== activeProjectId;
     const navigationRequest = loadRequestRef.current;
+    const projectLifetime = projectRemovalRef.current.get(projectId);
+    const isCurrent = (): boolean => loadRequestRef.current === navigationRequest
+      && projectRemovalRef.current.get(projectId) === projectLifetime;
     const previousSessionId = selectedRef.current;
     const previousNavigation = navigationRef.current;
     const draftPersonalization: DesktopChatPersonalizationOverride = {
@@ -1050,22 +1249,24 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       previousSessionId === undefined && draftMemoryOverride !== undefined ? draftPersonalization : undefined,
       idempotencyKey,
       undefined,
-      capabilitySelection
+      capabilitySelection,
+      fastMode
     );
     // 新输入已被 Runtime 接收，旧断点不再是当前会话可继续的任务。
     setDocument((current) => current?.session.id === receipt.sessionId && current.recovery
       ? { ...current, recovery: undefined }
       : current);
     // 发送途中切换会话时，不让迟到回执把用户拉回原聊天。
-    if (loadRequestRef.current !== navigationRequest) return receipt;
+    if (!isCurrent()) return receipt;
     if (switchingDraftProject) {
       // 消息已在目标项目创建后再切换界面；这样切换前不会重绘左侧栏，也不会丢掉目标运行产生的首批事件。
       try {
         const snapshot = await window.biny.selectProject(projectId);
-        if (loadRequestRef.current !== navigationRequest) return receipt;
+        if (!isCurrent()) return receipt;
         const opened = await openSession(projectId, receipt.sessionId, false, navigationRequest, snapshot);
-        if (!opened || loadRequestRef.current !== navigationRequest) return receipt;
+        if (!opened || !isCurrent()) return receipt;
       } catch (error) {
+        if (!isCurrent()) return receipt;
         setWarning(`消息已发送，但无法切换到目标文件夹：${errorMessage(error)}`);
         return receipt;
       }
@@ -1100,7 +1301,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     mergeProjectSnapshot(result.workspace);
     setDocument(result.document);
     setWriterConflict(result.document?.writerConflict);
-    setGenerationError(undefined);
+    setGenerationError(result.workspace.runtimeError?.message);
   }, [mergeProjectSnapshot]);
 
   const refreshRuntimeFailure = useCallback(async (projectId: string, sessionId?: string): Promise<void> => {
@@ -1142,7 +1343,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   }, [openSession, refreshRuntimeFailure]);
 
   // 发送直接进入聊天布局；临时用户消息覆盖 IPC/事件桥的空窗，真实事件到达后自动替换。
-  const sendPromptWithTransition = useCallback(async (input: string, attachments: DesktopAttachment[], delivery?: "steer" | "queue", idempotencyKey?: string, capabilitySelection?: AgentCapabilitySelection): Promise<void> => {
+  const sendPromptWithTransition = useCallback(async (input: string, attachments: DesktopAttachment[], delivery?: "steer" | "queue", idempotencyKey?: string, capabilitySelection?: AgentCapabilitySelection, fastMode?: boolean): Promise<void> => {
     if (loading) throw new Error("会话正在加载，请稍后发送。");
     setGenerationError(undefined);
     const pendingProjectId = selectedRef.current === undefined ? draftProjectId ?? projectRef.current : projectRef.current;
@@ -1154,11 +1355,12 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         projectId: pendingProjectId,
         sessionId: selectedRef.current,
         messageId: pendingId,
-        text: withAttachmentReferences(input, attachments)
+        text: input,
+        attachments
       });
     }
     try {
-      const receipt = await sendPrompt(input, attachments, delivery, pendingId, capabilitySelection);
+      const receipt = await sendPrompt(input, attachments, delivery, pendingId, capabilitySelection, fastMode);
       if (pendingProjectId) {
         setPendingPrompt((current) => current?.id === pendingId
           ? { ...current, sessionId: receipt.sessionId, messageId: receipt.messageId }
@@ -1183,16 +1385,19 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     }
     const previousSessionId = selectedRef.current;
     const navigationRequest = loadRequestRef.current;
+    const projectLifetime = projectRemovalRef.current.get(projectId);
+    const isCurrent = (): boolean => loadRequestRef.current === navigationRequest
+      && projectRemovalRef.current.get(projectId) === projectLifetime;
     const previousNavigation = navigationRef.current;
     try {
       const result = await window.biny.runSlashCommand(projectId, previousSessionId, command);
-      if (loadRequestRef.current !== navigationRequest) return;
+      if (!isCurrent()) return;
       if (result.sessionGoal) {
         if (previousSessionId === undefined && result.sessionId !== undefined) {
           const snapshot = await window.biny.refreshProject(projectId);
-          if (loadRequestRef.current !== navigationRequest) return;
+          if (!isCurrent()) return;
           const opened = await openSession(projectId, result.sessionId, false, navigationRequest, snapshot);
-          if (!opened || loadRequestRef.current !== navigationRequest) return;
+          if (!opened || !isCurrent()) return;
           const target: DesktopNavigationTarget = { projectId, sessionId: result.sessionId };
           const currentTarget = previousNavigation.entries[previousNavigation.index];
           commitNavigation(currentTarget?.projectId === projectId && currentTarget.sessionId === undefined
@@ -1201,14 +1406,14 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         }
         await refreshPlans();
       }
-      const feedback = sessionGoalSlashFeedback(result, loadRequestRef.current === navigationRequest);
+      const feedback = sessionGoalSlashFeedback(result, isCurrent());
       if (feedback.result) setSlashResult(feedback.result);
       if (feedback.notice) {
         setSlashResult(undefined);
         setToast(feedback.notice);
       }
     } catch (error) {
-      if (loadRequestRef.current !== navigationRequest) return;
+      if (!isCurrent()) return;
       throw error;
     }
   }, [draftProjectId, refreshPlans, openSession, commitNavigation, runCompaction]);
@@ -1223,6 +1428,9 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     const projectId = projectRef.current;
     if (!projectId) throw new Error("请先打开一个项目。");
     if (selectedRef.current !== sessionId) throw new Error("请回到原消息所在的会话后再提交编辑。");
+    const navigationRequest = loadRequestRef.current;
+    const isCurrentScope = (): boolean => loadRequestRef.current === navigationRequest
+      && projectRef.current === projectId && selectedRef.current === sessionId;
     const previousNavigation = navigationRef.current;
     const previousDocument = documentRef.current;
     const edit = window.biny.editPrompt;
@@ -1237,12 +1445,13 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     try {
       receipt = await edit(projectId, sessionId, userMessageIndex, input, attachments, idempotencyKey);
     } catch (error) {
-      if (projectRef.current === projectId && selectedRef.current === sessionId && previousDocument) setDocument(previousDocument);
-      if (projectRef.current === projectId && selectedRef.current === sessionId) {
+      if (isCurrentScope()) {
+        if (previousDocument) setDocument(previousDocument);
         await refreshRuntimeFailure(projectId, sessionId).catch(() => undefined);
       }
       throw error;
     }
+    if (!isCurrentScope()) return;
     setSelectedSessionId(receipt.sessionId);
     if (receipt.sessionId !== sessionId) {
       const target: DesktopNavigationTarget = { projectId, sessionId: receipt.sessionId };
@@ -1261,18 +1470,20 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     setDocument({ session: summary, events: prefixEvents, liveEvents: [] });
   }, [commitNavigation, refreshRuntimeFailure, workspace?.sessions]);
 
+  const [editingMessage, setEditingMessage] = useState<{ turnId: string; userMessageIndex: number; value: string; nonce: number; attachments: NonNullable<TimelineTurn["userAttachments"]> }>();
   const editUserMessage = useCallback(async (input: string, userMessageIndex: number, idempotencyKey?: string): Promise<void> => {
     const sessionId = selectedRef.current;
     if (!sessionId) {
       throw new Error("当前消息还没有可编辑的会话。");
     }
-    await editPrompt(input, [], sessionId, userMessageIndex, idempotencyKey);
-  }, [editPrompt]);
+    const current = editingMessage;
+    const attachments = current?.userMessageIndex === userMessageIndex ? current.attachments : [];
+    await editPrompt(input, attachments.map((attachment) => ({ ...attachment, size: attachment.size ?? 0 })), sessionId, userMessageIndex, idempotencyKey);
+  }, [editPrompt, editingMessage]);
 
   // 编辑历史消息：点「编辑」把文本回填到底部输入框，提交后原位替换并重新生成。
   // editingMessage 是编辑态的唯一事实源；editInFlight 只驱动时间线的乐观投影，
   // 在替换回合真正出现在时间线里之前保持置位，避免旧消息闪回。
-  const [editingMessage, setEditingMessage] = useState<{ turnId: string; userMessageIndex: number; value: string; nonce: number }>();
   const [editInFlight, setEditInFlight] = useState<{ turnId: string; user: string; userMessageIndex?: number }>();
   const requestEditMessage = useCallback((turn: TimelineTurn): void => {
     if (turn.userMessageIndex === undefined) return;
@@ -1281,20 +1492,29 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       turnId: turn.id,
       userMessageIndex: turn.userMessageIndex,
       value: splitAttachmentReferences(turn.user).text,
-      nonce: Date.now()
+      nonce: Date.now(),
+      attachments: turn.userAttachments ?? []
     });
     setFocusToken((value) => value + 1);
   }, []);
   const submitEditedMessage = useCallback(async (value: string): Promise<void> => {
     const current = editingMessage;
     if (!current) return;
+    const navigationRequest = loadRequestRef.current;
+    const projectId = projectRef.current;
+    const sessionId = selectedRef.current;
+    const isCurrentScope = (): boolean => loadRequestRef.current === navigationRequest
+      && projectRef.current === projectId && selectedRef.current === sessionId;
+    const pending = { turnId: current.turnId, user: value, userMessageIndex: current.userMessageIndex };
     setGenerationError(undefined);
-    setEditInFlight({ turnId: current.turnId, user: value, userMessageIndex: current.userMessageIndex });
+    setEditInFlight(pending);
     try {
       await editUserMessage(value, current.userMessageIndex, globalThis.crypto.randomUUID());
-      setEditingMessage(undefined);
+      if (!isCurrentScope()) return;
+      setEditingMessage((active) => active === current ? undefined : active);
     } catch (error) {
-      setEditInFlight(undefined);
+      setEditInFlight((active) => active === pending ? undefined : active);
+      if (!isCurrentScope()) return;
       throw error;
     }
   }, [editingMessage, editUserMessage]);
@@ -1307,11 +1527,10 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     () => editingMessage ? { nonce: editingMessage.nonce, value: editingMessage.value } : undefined,
     [editingMessage]
   );
-  // 切会话/切项目时退出编辑态、清掉生成错误横幅：都是当前会话的瞬态，不带过去。
+  // 切会话/切项目时退出编辑态，不带到新会话。
   useEffect(() => {
     setEditingMessage(undefined);
     setEditInFlight(undefined);
-    setGenerationError(undefined);
   }, [selectedSessionId, workspace?.project.id]);
 
   const createBranch = useCallback(async (): Promise<void> => {
@@ -1340,21 +1559,57 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     setWarning(files.length ? "当前消息的文件变更没有安全快照，暂不自动回滚" : "当前消息没有可回滚的文件");
   }, []);
 
-  const settingsCommitted = useCallback((snapshot: DesktopSettingsSnapshot): void => {
-    setChatResponse(snapshot.chatParams.response);
-    adoptAppearance({ themePreference: snapshot.themePreference, fontPreference: snapshot.fontPreference, appearancePreference: normalizeAppearancePreference(snapshot.appearancePreference) });
+  const settingsCommitted = useCallback((snapshot: DesktopSettingsSnapshot, scope?: "models" | "model-config" | "preferences" | "settings", appliedFields?: string[]): void => {
+    // 工具和视觉模型已由设置回执更新；不刷新不相关的侧栏会话树。
+    if (scope === "models") return;
+    if (scope === "model-config") {
+      invalidateProjectRefresh(snapshot.projectId);
+      setWorkspace(current => {
+        if (current?.project.id !== snapshot.projectId) return current;
+        const selectedModel = snapshot.models.selectedModel;
+        const pickerModels = snapshot.models.configured
+          .filter(model => model.source === "configured" && model.available && model.showInPicker !== false)
+          .sort((left, right) => Number(right.alias === selectedModel?.modelAlias) - Number(left.alias === selectedModel?.modelAlias))
+          .map(model => model.alias === selectedModel?.modelAlias ? { ...model, defaultThinking: selectedModel.thinking } : model);
+        return { ...current, models: snapshot.models.configured, pickerModels, selectedModel,
+          connections: snapshot.models.connections, requiresModelConfiguration: pickerModels.length === 0 };
+      });
+      return;
+    }
+    adoptAppearance({ themePreference: snapshot.themePreference, fontPreference: snapshot.fontPreference });
+    if (scope === "preferences") return;
+    if (snapshot.projectId === projectRef.current) setChatResponse(snapshot.chatParams.response);
+    if (scope === "settings") {
+      setWorkspace(current => current?.project.id === snapshot.projectId ? { ...current,
+        memory: snapshot.memory, permissionMode: snapshot.permission.mode,
+        capabilityDefaults: { tools: snapshot.chatParams.defaultToolSelection, skills: snapshot.chatParams.defaultSkillSelection }
+      } : current);
+      if (appliedFields?.includes("skills")) refreshComposerCatalog("skills");
+      return;
+    }
     void window.biny.refreshProject(snapshot.projectId)
       .then(mergeProjectSnapshot)
       .catch((error: unknown) => setWarning(errorMessage(error)));
-  }, [adoptAppearance, mergeProjectSnapshot]);
+  }, [adoptAppearance, invalidateProjectRefresh, mergeProjectSnapshot, refreshComposerCatalog]);
+
+  const mergeProjectMetadata = useCallback((project: DesktopProject, field: "name" | "pinned"): void => {
+    invalidateProjectRefresh(project.id);
+    setProjects(current => {
+      const existing = current.find(candidate => candidate.id === project.id);
+      return existing ? mergeProject(current, { ...existing, [field]: project[field] }) : current;
+    });
+    setWorkspace(current => current?.project.id === project.id ? { ...current, project: { ...current.project, [field]: project[field] } } : current);
+  }, [invalidateProjectRefresh]);
 
   const toggleProjectPinned = useCallback(async (projectId: string, pinned: boolean): Promise<void> => {
+    const lifetime = projectRemovalRef.current.get(projectId);
     try {
-      mergeProjectSnapshot(await window.biny.setProjectPinned(projectId, pinned));
+      const project = await window.biny.setProjectPinned(projectId, pinned);
+      if (projectRemovalRef.current.get(projectId) === lifetime) mergeProjectMetadata(project, "pinned");
     } catch (error) {
       setWarning(errorMessage(error));
     }
-  }, [mergeProjectSnapshot]);
+  }, [mergeProjectMetadata]);
 
   const reorderProjects = useCallback(async (projectIds: string[]): Promise<void> => {
     // Quiet optimistic reorder — this is a low-stakes UI preference, not a warnable action.
@@ -1372,42 +1627,70 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   }, [projects]);
 
   const removeProject = useCallback(async (projectId: string): Promise<void> => {
+    const request = loadRequestRef.current;
+    const lifetimes = new Map(projectRemovalRef.current);
     try {
       const bootstrap = await window.biny.removeProject(projectId);
-      if (projectRef.current === projectId) {
-        permissionModeRequestRef.current += 1;
-        memoryToggleRequestRef.current += 1;
-        setMemoryToggleBusy(false);
+      projectRemovalRef.current.set(projectId, {});
+      // This receipt confirms only this removal, not a replacement of newer catalog/view state.
+      setProjects((current) => current.filter((project) => project.id !== projectId));
+      sessionTreePages.removeProject(projectId);
+      invalidateSessionRootPage(projectId);
+      setSidebarSessions((current) => current.filter((session) => session.projectId !== projectId));
+      setDraftProjectId((current) => current === projectId ? undefined : current);
+      const pending = pendingNavigationRef.current;
+      if (pending?.projectId === projectId) {
+        setPendingNavigation(undefined);
+        setLoading(false);
       }
-      setProjects(bootstrap.projects);
-      sessionTreePages.replaceAll(bootstrap.sidebarSessions);
-      setSidebarSessions(bootstrap.sidebarSessions);
-      setWorkspace(bootstrap.workspace);
+      if (projectRef.current !== projectId) return;
+      const ownsFallback = loadRequestRef.current === request && (!pending || pending.projectId === projectId);
+      const candidate = bootstrap.workspace;
+      const fallback = ownsFallback && candidate && candidate.project.id !== projectId
+        && projectRemovalRef.current.get(candidate.project.id) === lifetimes.get(candidate.project.id)
+        ? { ...candidate, selectedSessionId: undefined }
+        : undefined;
+      if (ownsFallback) {
+        // A real view change retires receipts issued while removal was pending.
+        loadRequestRef.current += 1;
+        setPendingNavigation(undefined);
+        setLoading(false);
+      }
+      permissionModeRequestRef.current += 1;
+      memoryToggleRequestRef.current += 1;
+      setMemoryToggleBusy(false);
+      projectRef.current = fallback?.project.id;
+      selectedRef.current = undefined;
+      documentRef.current = undefined;
+      if (fallback) adoptSessionRootPage(fallback);
+      setWorkspace(fallback);
       setDocument(undefined);
       setSelectedSessionId(undefined);
-      setDraftProjectId(undefined);
-      setPage(bootstrap.activeView === "extensions" ? "extensions" : "chat");
-      setRuntimePanelOpen(bootstrap.activeView === "runtime" && Boolean(bootstrap.workspace));
+      setDraftMemoryOverride(undefined);
+      setWriterConflict(undefined);
+      setContextBudget(undefined);
+      setComposerDraft(undefined);
+      setRuntimePanelOpen(bootstrap.activeView === "runtime" && Boolean(fallback));
       commitNavigation(createNavigationState());
     } catch (error) {
-      setWarning(errorMessage(error));
+      if (loadRequestRef.current === request && projectRemovalRef.current.get(projectId) === lifetimes.get(projectId)) {
+        setWarning(errorMessage(error));
+      }
     }
-  }, [commitNavigation, sessionTreePages]);
+  }, [adoptSessionRootPage, commitNavigation, invalidateSessionRootPage, sessionTreePages, setPendingNavigation]);
 
   // 聊天区状态变化很频繁；侧栏已经 memo，这些桥接回调必须保持引用稳定，避免每次输入/流式更新
   // 都把整棵项目树重新渲染一遍，触发 macOS 玻璃侧栏的重绘闪烁。
-  const openTimeClues = useCallback((): void => setTimeCluesOpen(true), []);
-
   const createSidebarProject = useCallback((): void => {
     void createEmptyProject();
   }, [createEmptyProject]);
   const createTopLevelTask = useCallback((): void => {
     void newTask(undefined, true);
   }, [newTask]);
-  const createSidebarTask = useCallback((projectId: string): void => {
+  const createSidebarTask = useCallback((projectId: string, isolation?: "shared" | "worktree"): void => {
     // 从项目文件夹里新建：有明确上下文，不展示欢迎 hero。
     setHeroStart(false);
-    void newTask(projectId, false);
+    void newTask(projectId, false, isolation);
   }, [newTask]);
   const importSidebarSession = useCallback((projectId: string): void => {
     void importSessionIntoProject(projectId);
@@ -1476,10 +1759,20 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const turns = useSessionTimeline(document);
   // 「变更」视图数据：从时间线收集 Agent 改过的文件；轮次引用稳定时 useMemo 不重算。
   const sessionChanges = useMemo(() => collectSessionChanges(turns), [turns]);
+  const sessionTools = useMemo(() => turns.flatMap((turn) => turn.tools), [turns]);
+  const sessionSkills = useMemo(() => {
+    // Only confirmed loads contribute; normalize each distinct loaded reference once.
+    const loaded = new Set<string>();
+    for (const turn of turns) {
+      for (const skill of turn.skills) loaded.add(skill);
+    }
+    return skillActivities([...loaded], undefined, [], skillLabels);
+  }, [turns, skillLabels]);
   const inspector = useWorkspaceInspector({
     changes: sessionChanges,
     sidebarFlowWidth: sidebarLayout.flowWidth,
-    tools: turns.flatMap((turn) => turn.tools),
+    tools: sessionTools,
+    skills: sessionSkills,
     filePanelResizing,
     filePanelWidth,
     onFilePanelResizeEnd: (width) => {
@@ -1525,6 +1818,13 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   }, [inspector, pendingBrowserProject, selectProject, workspace?.project.id]);
 
   useEffect(() => {
+    if (!pendingPreviewBrowser) return;
+    const { projectId, sessionId, request } = pendingPreviewBrowser;
+    if (request !== loadRequestRef.current || projectRef.current !== projectId || (sessionId && selectedRef.current !== sessionId)) { setPendingPreviewBrowser(undefined); return; }
+    if (workspace?.project.id === projectId && (!sessionId || selectedSessionId === sessionId)) { inspector.showBrowser(); setPendingPreviewBrowser(undefined); }
+  }, [inspector, pendingPreviewBrowser, selectedSessionId, workspace?.project.id]);
+
+  useEffect(() => {
     const pending = pendingPrompt;
     if (!pending) return;
     const stillSelected = pending.projectId === workspace?.project.id
@@ -1542,7 +1842,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   }, [pendingPrompt, selectedSessionId, turns, workspace]);
   // 以下三个回调会一路传到 MessageTimeline 的 Turn（React.memo）；内联箭头会让引用每帧变化、
   // memo 失效，所以这里用 useCallback 固定下来，配合轮次引用稳定让流式期间只重渲染变化的轮次。
-  const retryTimelinePrompt = useCallback(async (targetMessageId: string, input: string, idempotencyKey: string): Promise<void> => {
+  const retryTimelinePrompt = useCallback(async (targetMessageId: string, input: string, attachments: import("../../attachmentReferences.js").AttachmentReference[], idempotencyKey: string): Promise<void> => {
     const projectId = projectRef.current;
     const sessionId = selectedRef.current;
     if (!projectId || !sessionId) {
@@ -1553,7 +1853,8 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     const retry = window.biny.retryPrompt;
     if (typeof retry !== "function") throw new Error(desktopApiVersionMismatchMessage);
     try {
-      const receipt = await retry(projectId, sessionId, targetMessageId, input, [], idempotencyKey);
+      const receipt = await retry(projectId, sessionId, targetMessageId, input,
+        attachments.map((attachment) => ({ ...attachment, size: attachment.size ?? 0 })), idempotencyKey);
       setSelectedSessionId(receipt.sessionId);
     } catch (error) {
       if (projectRef.current === projectId && selectedRef.current === sessionId) {
@@ -1607,27 +1908,13 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const externalAgent = workspace?.selectedModel?.provider === "acp" || selectedRuntimeSnapshot?.info.provider === "acp"
     || Boolean(document?.events.some((event) => event.type === "message_metadata" && typeof event.metadata.acpProvider === "string"));
   // 展示最近请求的完整输入 / 模型完整窗口；压缩预算继续由后端独立控制。
-  const contextUsage = useMemo<ContextUsage | undefined>(() => {
-    const info = selectedRuntimeSnapshot?.info;
-    const persisted = document?.events.slice().reverse().find((event) => (
-      (event.type === "assistant_message" || event.type === "user_message") && !event.auditOnly && event.contextState !== undefined
-    ));
-    const budget = contextBudget ?? (persisted && "contextState" in persisted ? persisted.contextState?.budget : undefined);
-    const activeModelAlias = info?.modelAlias ?? budget?.modelAlias;
-    const selectedModel = workspace?.models.find((model) => model.alias === activeModelAlias);
-    const sameModel = !info?.modelAlias || !budget?.modelAlias || info.modelAlias === budget.modelAlias;
-    const capacity = resolveContextCapacity(info, selectedModel, sameModel ? budget : undefined);
-    const contextWindow = capacity?.contextWindow;
-    if (!contextWindow) return undefined;
-    return {
-      usedTokens: (sameModel ? budget?.usedTokens : budget?.estimatedTokens) ?? lastReportedInputTokens(document) ?? 0,
-      contextWindow,
-      contextWindowIsFallback: capacity?.contextWindowIsFallback ?? true,
-      source: sameModel ? budget?.source : "estimated",
-      breakdown: budget?.breakdown,
-      cacheHitRate: budget?.cacheHitRate
-    };
-  }, [contextBudget, document, selectedRuntimeSnapshot?.info, workspace?.models]);
+  const contextUsage = useMemo<ContextUsage | undefined>(() => resolveSessionContextUsage({
+    sessionId: selectedSessionId,
+    document,
+    runtimeInfo: selectedRuntimeSnapshot?.info,
+    models: workspace?.models ?? [],
+    liveBudget: contextBudget
+  }), [contextBudget, document, selectedSessionId, selectedRuntimeSnapshot?.info, workspace?.models]);
   const appshotNavigation = useRef(openNavigationTarget);
   useEffect(() => { appshotNavigation.current = openNavigationTarget; }, [openNavigationTarget]);
   useEffect(() => {
@@ -1639,7 +1926,11 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       const unsubscribe = api.onEvent(event => {
         if (event.type === "starting") {
           const projectId = projectRef.current;
-          if (projectId) targets.set(event.id, { projectId, sessionId: event.target === "new" ? undefined : selectedRef.current });
+          if (projectId) {
+            const target = { projectId, sessionId: event.target === "new" ? undefined : selectedRef.current };
+            targets.set(event.id, target);
+            if (event.target === "new" && selectedRef.current !== undefined) void appshotNavigation.current(target).catch(failure => { if (active) setWarning(errorMessage(failure)); });
+          }
           return;
         }
         const target = targets.get(event.id); targets.delete(event.id);
@@ -1649,10 +1940,11 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
           if (!active) return;
           const key = `${target.projectId}:${target.sessionId ?? "draft"}`;
           let draft = composerDrafts.get(key); if (!draft) { draft = new ComposerDraftState(); composerDrafts.set(key, draft); }
-          if (draft.getSnapshot().attachments.length >= 8) { setWarning("聊天附件已满，请移除一个附件后重新截图。"); return; }
+          const snapshot = draft.getSnapshot();
+          if (snapshot.attachments.length + snapshot.pendingAttachments.length >= 8) { setWarning("聊天附件已满，请移除一个附件后重新截图。"); return; }
           draft.update(current => ({ attachments: [...current.attachments, attachment] }));
           setSettingsOpen(false);
-          await appshotNavigation.current(target);
+          if (event.target === "current") await appshotNavigation.current(target);
           if (!active) return;
           setFocusToken(value => value + 1); setToast(`已将 ${event.source.appName} 的截图放入聊天草稿`);
         }).catch(failure => { if (active) setWarning(errorMessage(failure)); });
@@ -1662,12 +1954,21 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   }, [composerDrafts]);
 
   useEffect(() => window.binyComputer?.onNavigate?.(target => {
-    const projectId = target.projectId ?? sidebarSessions.find(session => session.id === target.sessionId)?.projectId;
-    if (projectId && target.sessionId) void navigateToSession(projectId, target.sessionId).catch(failure => setWarning(errorMessage(failure)));
-    else if (projectId) void openNavigationTarget({ projectId }).catch(failure => setWarning(errorMessage(failure)));
-    else if (target.sessionId && workspace?.sessions.some(session => session.id === target.sessionId)) void navigateToSession(workspace.project.id, target.sessionId).catch(failure => setWarning(errorMessage(failure)));
-    else { setPage("chat"); if (target.sessionId) setWarning("关联聊天未在当前列表中，请从侧栏打开。"); }
-  }), [navigateToSession, openNavigationTarget, sidebarSessions, workspace]);
+    const projectId = target.projectId ?? sidebarSessions.find(session => session.id === target.sessionId)?.projectId
+      ?? (target.sessionId && workspace?.sessions.some(session => session.id === target.sessionId) ? workspace.project.id : undefined)
+      ?? (!target.sessionId && target.revealBrowser ? workspace?.project.id : undefined);
+    if (projectId && target.sessionId) {
+      const sessionId = target.sessionId;
+      const navigation = navigateToSession(projectId, sessionId), request = loadRequestRef.current;
+      void navigation.then(opened => {
+        if (opened && target.revealBrowser && request === loadRequestRef.current && projectRef.current === projectId && selectedRef.current === sessionId) setPendingPreviewBrowser({ projectId, sessionId, request });
+      }).catch(failure => setWarning(errorMessage(failure)));
+    } else if (projectId && target.revealBrowser) {
+      const navigation = selectProject(projectId), request = loadRequestRef.current;
+      void navigation.then(() => { if (request === loadRequestRef.current && projectRef.current === projectId) setPendingPreviewBrowser({ projectId, request }); });
+    } else if (projectId) void openNavigationTarget({ projectId }).catch(failure => setWarning(errorMessage(failure)));
+    else if (target.sessionId) setWarning("关联聊天未在当前列表中，请从侧栏打开。");
+  }), [navigateToSession, openNavigationTarget, selectProject, sidebarSessions, workspace]);
 
   const clearToast = useCallback(() => setToast(undefined), []);
   const sessionSummary = workspace?.sessions.find((session) => session.id === selectedSessionId) ?? document?.session;
@@ -1746,9 +2047,9 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         useMemories: enabled,
         contributeMemories: enabled
       };
-      const snapshot = await window.biny.saveChatPersonalization(projectId, sessionId, nextOverride, selectedSession.metadataRevision);
+      const receipt = await window.biny.saveChatPersonalization(projectId, sessionId, nextOverride, selectedSession.metadataRevision);
       if (!isCurrentRequest()) return;
-      mergeProjectSnapshot(snapshot);
+      mergeSessionMetadata(receipt, selectedSession.metadataRevision);
       setToast(enabled ? "当前聊天已开启记忆" : "当前聊天已关闭记忆");
       setDraftMemoryOverride(undefined);
     } catch (error) {
@@ -1759,7 +2060,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     } finally {
       if (isCurrentRequest()) setMemoryToggleBusy(false);
     }
-  }, [chatMemoryEnabled, draftMemoryOverride, memoryPolicy, memoryToggleBusy, mergeProjectSnapshot, selectedSession]);
+  }, [chatMemoryEnabled, draftMemoryOverride, memoryPolicy, memoryToggleBusy, mergeSessionMetadata, selectedSession]);
   const prefillComposer = useCallback((input: string): void => {
     setComposerDraft(input);
     setFocusToken((value) => value + 1);
@@ -1768,18 +2069,29 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     const projectId = projectRef.current;
     const sessionId = selectedRef.current;
     if (!projectId || !sessionId) return;
+    const navigationRequest = loadRequestRef.current;
+    const isCurrentScope = (): boolean => loadRequestRef.current === navigationRequest
+      && projectRef.current === projectId && selectedRef.current === sessionId;
     try {
       const result = await window.biny.referenceForMessage(projectId, sessionId, messageId);
+      if (!isCurrentScope()) return;
       const label = result.label.replace(/[\]\n\r]/gu, " ").slice(0, 80) || "消息";
       composerRef.current?.appendText(`@[${label}](${result.uri})`);
-    } catch (error) { setWarning(errorMessage(error)); }
+    } catch (error) { if (isCurrentScope()) setWarning(errorMessage(error)); }
   }, []);
   const showMessageReferences = useCallback(async (messageId: string): Promise<void> => {
     const projectId = projectRef.current;
     const sessionId = selectedRef.current;
     if (!projectId || !sessionId) return;
-    try { setMessageReferencesUri((await window.biny.referenceForMessage(projectId, sessionId, messageId)).uri); }
-    catch (error) { setWarning(errorMessage(error)); }
+    const request = ++messageReferencesRequestRef.current;
+    const navigationRequest = loadRequestRef.current;
+    const isCurrentRequest = (): boolean => messageReferencesRequestRef.current === request
+      && loadRequestRef.current === navigationRequest
+      && projectRef.current === projectId && selectedRef.current === sessionId;
+    try {
+      const result = await window.biny.referenceForMessage(projectId, sessionId, messageId);
+      if (isCurrentRequest()) setMessageReferencesTarget({ projectId, uri: result.uri });
+    } catch (error) { if (isCurrentRequest()) setWarning(errorMessage(error)); }
   }, []);
   const addQuoteToConversation = useCallback(async (messageId: string, quote: string): Promise<void> => {
     const projectId = projectRef.current;
@@ -1788,10 +2100,14 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       setWarning("请在已打开的对话中选择文字，再添加到对话。");
       return;
     }
+    const navigationRequest = loadRequestRef.current;
+    const isCurrentScope = (): boolean => loadRequestRef.current === navigationRequest
+      && projectRef.current === projectId && selectedRef.current === sessionId;
     try {
       const source = await window.biny.referenceForMessage(projectId, sessionId, messageId);
+      if (!isCurrentScope()) return;
       const result = await window.biny.referenceCaptureSelectionQuote(projectId, source.uri, quote);
-      if (projectRef.current !== projectId || selectedRef.current !== sessionId) return;
+      if (!isCurrentScope()) return;
       const labelCharacters = Array.from(result.label.replace(/[\]\n\r]/gu, " ").replace(/\s+/gu, " ").trim());
       const label = `${labelCharacters.slice(0, 48).join("")}${labelCharacters.length > 48 ? "…" : ""}` || "引用内容";
       const composer = composerRef.current;
@@ -1801,14 +2117,30 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       }
       composer.appendReference({ kind: result.kind, label, uri: result.uri });
     } catch (error) {
-      if (projectRef.current === projectId && selectedRef.current === sessionId) setWarning(errorMessage(error));
+      if (isCurrentScope()) setWarning(errorMessage(error));
     }
   }, []);
   // 深链路由：MarkdownContent 叶子渲染直接调用 hub，这里统一解析并导航。
   const openDeepLink = useCallback(async (url: string, requestedProjectId?: string): Promise<void> => {
-    if (/^biny:\/\/(?:date|project|file|thread|memory|snippet|scratch|skill|agent|mcp|model|provider|tool|tool-call|task|cron|crystal|bundle|plan)\//u.test(url)) {
+    if (/^biny:\/\/(?:date|project|file|thread|memory|snippet|scratch|skill|agent|mcp|model|provider|tool|tool-call|task|cron|plan)\//u.test(url)) {
       const projectId = requestedProjectId ?? workspace?.project.id;
       if (!projectId) return;
+      if (url.startsWith("biny://file/")) {
+        const switching = projectId !== projectRef.current;
+        const selection = switching || requestedProjectId ? selectProject(projectId) : undefined;
+        const navigationRequest = loadRequestRef.current;
+        const request = inspector.reserveFilePreview({ projectId, source: `${projectId}:${switching ? "draft" : selectedRef.current ?? "draft"}` },
+          () => loadRequestRef.current === navigationRequest);
+        try {
+          await selection;
+          if (!request.current() || projectRef.current !== projectId) { request.cancel(); return; }
+          const reference = await window.biny.referenceResolve(projectId, url);
+          if (reference.kind === "file") request.open(reference.label);
+        } catch (error) {
+          if (request.current() && projectRef.current === projectId) { request.cancel(); setWarning(errorMessage(error)); }
+        }
+        return;
+      }
       try {
         if (requestedProjectId && requestedProjectId !== workspace?.project.id) await selectProject(requestedProjectId);
         const reference = await window.biny.referenceResolve(projectId, url);
@@ -1820,7 +2152,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         else if (reference.kind === "project") await selectProject(projectId);
         else if (reference.kind === "memory") openSettings("记忆");
         else if (reference.kind === "date") setDateReferenceUri(url);
-        else if (reference.kind === "skill") openExtensions();
+        else if (reference.kind === "skill") openSettings("技能");
         else if (reference.kind === "mcp") openSettings("MCP 服务器");
         else if (reference.kind === "model" || reference.kind === "provider") openSettings("模型");
         else inspector.previewReference(reference);
@@ -1841,7 +2173,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       ? workspace.project.id
       : sidebarSessions.find((session) => session.id === link.sessionId)?.projectId;
     if (projectId !== undefined) await openSession(projectId, link.sessionId);
-  }, [inspector, navigateToSession, openExtensions, openSession, openSettings, prefillComposer, selectProject, sidebarSessions, workspace]);
+  }, [inspector, navigateToSession, openSession, openSettings, prefillComposer, selectProject, sidebarSessions, workspace]);
   useEffect(() => {
     setDeepLinkHandler((url) => void openDeepLink(url));
     return () => setDeepLinkHandler(undefined);
@@ -1849,15 +2181,8 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   useEffect(() => window.biny.onReferenceOpen(({ uri, projectId }) => {
     void openDeepLink(uri, projectId);
   }), [openDeepLink]);
-  const insertCrystalReference = useCallback((reference: string): void => {
-    if (composerRef.current) {
-      composerRef.current.appendText(reference);
-    } else {
-      setPage("chat");
-      prefillComposer(`${reference} `);
-    }
-  }, [prefillComposer]);
   const dismissRecipe = useCallback((notice: RecipeNotice): void => {
+    dismissedRecipeIdsRef.current.add(notice.id);
     setRecipeNotices((current) => current.filter((candidate) => candidate.id !== notice.id));
     const projectId = projectRef.current;
     const sessionId = selectedRef.current;
@@ -1867,6 +2192,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
     }
   }, []);
   const extractRecipe = useCallback((notice: RecipeNotice): void => {
+    dismissedRecipeIdsRef.current.add(notice.id);
     setRecipeNotices((current) => current.filter((candidate) => candidate.id !== notice.id));
     prefillComposer(notice.extractPrompt);
     const projectId = projectRef.current;
@@ -1903,8 +2229,10 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   const composer = (
     <>
     <Composer
-      key={`${workspace?.project.id ?? "none"}:${selectedSessionId ?? "draft"}`}
-      draftKey={`${workspace?.project.id ?? "none"}:${selectedSessionId ?? "draft"}`}
+      key={`${composerProject?.id ?? "none"}:${selectedSessionId ?? "draft"}`}
+      draftKey={`${composerProject?.id ?? "none"}:${selectedSessionId ?? "draft"}`}
+      draftProjectId={composerProject?.id}
+      isSubmissionCurrent={() => projectRef.current === workspace?.project.id && selectedRef.current === selectedSessionId}
       drafts={composerDrafts}
       onInspectReference={inspector.previewReference}
       ref={composerRef}
@@ -1924,7 +2252,10 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       modelSetupRequired={Boolean(workspace?.requiresModelConfiguration)}
       models={workspace?.pickerModels ?? workspace?.models ?? []}
       connections={workspace?.connections}
+      fastMode={composerFastMode}
+      onChangeFastMode={(fastMode) => { void changeFastMode(fastMode); }}
       onSaveAttachment={saveAttachment}
+      onPrepare={async () => { if (workspace && !externalAgent) await window.biny.preparePrompt(workspace.project.id); }}
       onSend={sendPromptWithTransition}
       recovery={!loading && document?.session.id === selectedSessionId ? document?.recovery : undefined}
       onResume={continueInterrupted}
@@ -1960,19 +2291,22 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
   );
 
   return (
-    <AppearanceProvider snapshot={appearance.snapshot} onError={setAppearanceError}><ChatResponseContext value={chatResponse}><RenderingPreviewContext value={inspector.previewRendering}><DesktopShell
-      windowTitle={sessionSummary?.title ?? workspace?.project.name ?? "Biny"}
+    <AppearanceProvider snapshot={appearance.snapshot}><ChatResponseContext value={chatResponse}><RenderingPreviewContext value={inspector.previewRendering}><DesktopShell
       starting={starting}
       overlays={(
         <>
+          <WindowCapture />
           <SearchOverlay
             onClose={closeSearch}
             onProject={(projectId) => void selectProject(projectId)}
             onSession={(projectId, sessionId) => void navigateToSession(projectId, sessionId)}
+            onFile={(path) => inspector.previewFile(path)}
             open={searchOpen}
             projects={projects}
+            selectedProjectId={workspace?.project.id}
             sessions={sidebarSessions}
           />
+          <NewProjectDialog open={newProjectOpen} onClose={() => setNewProjectOpen(false)} onCreate={submitNewProject} />
           <SettingsOverlay
             closeRequest={settingsCloseRequest}
             projects={projects}
@@ -1996,7 +2330,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
             onReadModelApiKey={readModelApiKey}
             onFontPreference={changeFontPreference}
             onSettingsCommitted={settingsCommitted}
-            onSessionImportComplete={async projectId => { mergeProjectSnapshot(await window.biny.refreshProject(projectId)); }}
+            onCapabilitiesChanged={refreshComposerCatalog}
             onResolveCloseRequest={resolveSettingsCloseRequest}
             onImportCookies={async () => await window.biny.importCookies()}
             onNotify={setWarning}
@@ -2022,20 +2356,12 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
             targetTab={settingsTargetTab}
             themePreference={themePreference}
             fontPreference={fontPreference}
-            appearancePreference={appearancePreference}
-            onAppearancePreference={changeAppearancePreference}
             version={version}
             workspace={workspace}
           />
-          <TimeCluesDialog open={timeCluesOpen} currentSessionId={selectedSessionId}
-            refreshKey={`${document?.events.length ?? 0}`}
-            onClose={() => setTimeCluesOpen(false)} onSource={(projectId, sessionId, messageId) => {
-            setTimeCluesOpen(false);
-            setTemporalSourceTarget({ sessionId, messageId });
-            void navigateToSession(projectId, sessionId);
-          }} />
-          {messageReferencesUri && workspace?.project.id ? <MessageReferencesDialog projectId={workspace.project.id}
-            uri={messageReferencesUri} onClose={() => setMessageReferencesUri(undefined)} onOpen={(uri) => void openDeepLink(uri)} /> : null}
+          {messageReferencesTarget && workspace?.project.id ? <MessageReferencesDialog projectId={messageReferencesTarget.projectId}
+            uri={messageReferencesTarget.uri} onClose={() => { messageReferencesRequestRef.current += 1; setMessageReferencesTarget(undefined); }}
+            onOpen={(uri) => void openDeepLink(uri, messageReferencesTarget.projectId)} /> : null}
           {dateReferenceUri && workspace?.project.id ? <DateReferenceDetailDialog projectId={workspace.project.id}
             uri={dateReferenceUri} onClose={() => setDateReferenceUri(undefined)} onSource={(sessionId, messageId) => {
               const projectId = workspace.project.id;
@@ -2049,15 +2375,24 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
             onSave={async (title) => {
               if (!renameTarget) return;
               if (renameTarget.kind === "project") {
-                mergeProjectSnapshot(await window.biny.renameProject(renameTarget.projectId, title));
+                const lifetime = projectRemovalRef.current.get(renameTarget.projectId);
+                const project = await window.biny.renameProject(renameTarget.projectId, title);
+                if (projectRemovalRef.current.get(renameTarget.projectId) === lifetime) mergeProjectMetadata(project, "name");
               } else if (renameTarget.sessionId) {
-                mergeProjectSnapshot(await window.biny.renameSession(renameTarget.projectId, renameTarget.sessionId, title, renameTarget.metadataRevision));
-                setDocument((current) => {
-                  if (!current || current.session.id !== renameTarget.sessionId) return current;
-                  return { events: current.events, liveEvents: current.liveEvents, session: { ...current.session, title } };
-                });
+                const ownsProject = sessionTreePages.captureCatalogProject(renameTarget.projectId);
+                await window.biny.renameSession(renameTarget.projectId, renameTarget.sessionId, title, renameTarget.metadataRevision);
+                invalidateProjectRefresh(renameTarget.projectId);
+                if (ownsProject()) {
+                  sessionTreePages.refreshCatalog(
+                    renameTarget.projectId,
+                    sessionIds => window.biny.listSessionTreePage(renameTarget.projectId, { limit: 32, includeArchived: true, includePinnedSessions: true, sessionIds }),
+                    mergeSessionCatalog,
+                    error => setWarning(`名称已保存，但会话列表刷新失败：${errorMessage(error)}`),
+                    renameTarget.sessionId
+                  );
+                }
               }
-              setRenameTarget(undefined);
+              setRenameTarget(current => current === renameTarget ? undefined : current);
             }}
             open={Boolean(renameTarget)}
             title={renameTarget?.kind === "project" ? "重命名项目" : "重命名会话"}
@@ -2094,13 +2429,13 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
           onSessionAction={runSidebarSessionAction}
           onDeleteSessions={deleteSidebarSessions}
           onSettings={settingsEnabled ? openSettings : undefined}
-          onTimeClues={openTimeClues}
-          onInsertCrystal={insertCrystalReference}
           onToggleSidebar={toggleSidebar}
           layout={sidebarLayout}
           projects={projects}
           selectedSessionId={pendingNavigation ? pendingNavigation.sessionId : selectedSessionId}
           sessions={sidebarSessions}
+          sessionRootPages={sessionRootPages}
+          onLoadProjectSessions={loadProjectSessions}
           peekDrawerHandlers={sidebarPeekDrawerHandlers}
           peekDrawerRef={sidebarPeekDrawerRef}
           peekTriggerHandlers={sidebarPeekTriggerHandlers}
@@ -2109,10 +2444,7 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
       )}
       theme={themePreference}
     >
-      {page === "extensions" ? <SkillHubView
-        onError={setWarning}
-        onOpenRuntime={openRuntimePanel}
-      /> : <Workspace
+      <Workspace
         externalAgent={externalAgent}
         loading={loading}
         onSendActivitySuggestion={async text => { await composerRef.current?.submitSuggestion(text); }}
@@ -2168,10 +2500,9 @@ function DesktopApp({ settingsEnabled }: { settingsEnabled: boolean }): React.JS
         skillDescriptions={skillDescriptions}
         skillLabels={skillLabels}
         onOpenRuntime={openRuntimePanel}
-        onOpenExtensions={openExtensions}
       >
         {composer}
-      </Workspace>}
+      </Workspace>
       {appearanceError ? <div className="biny-appearance-error" role="alert">{appearanceError}<button type="button" onClick={() => setAppearanceError(undefined)}>关闭</button></div> : null}
     </DesktopShell></RenderingPreviewContext></ChatResponseContext></AppearanceProvider>
   );

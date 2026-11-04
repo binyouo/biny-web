@@ -10,25 +10,24 @@ import { useActivityRuntime } from "./ActivityRuntimeContext.js";
 import { SettingsActivityApplications } from "./SettingsActivityApplications.js";
 import { SettingsSwitch } from "./SettingsSwitch.js";
 
-export function SettingsActivity({ onOpenToolModel }: { onOpenToolModel?: () => void }): React.JSX.Element {
+export function SettingsActivity(): React.JSX.Element {
   const { activity, loadError, updateActivityImmediately } = useSettingsDraft();
   const { runtime, permissions, permissionError, refresh, refreshPermissions, updateRuntime } = useActivityRuntime();
   if (!activity) return <div aria-busy={!loadError} className="settings-sections"><section><p role={loadError ? "alert" : "status"}>{loadError ? `Computer History 设置加载失败：${loadError}。请关闭设置后重试。` : "正在加载 Computer History 设置…"}</p></section></div>;
-  return <SettingsActivityForm activity={activity} onChange={updateActivityImmediately} onRefreshRuntime={refresh} onRefreshPermissions={refreshPermissions} onRuntimeChange={updateRuntime} onOpenToolModel={onOpenToolModel} permissions={permissions} permissionError={permissionError} runtime={runtime} />;
+  return <SettingsActivityForm activity={activity} onChange={updateActivityImmediately} onRefreshRuntime={refresh} onRefreshPermissions={refreshPermissions} onRuntimeChange={updateRuntime} permissions={permissions} permissionError={permissionError} runtime={runtime} />;
 }
 
-function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshPermissions, onRuntimeChange, onOpenToolModel, permissions, permissionError, runtime }: { activity: DesktopActivitySettingsInput; onChange(patch: Partial<DesktopActivitySettingsInput>): Promise<void>; onRefreshRuntime(): Promise<ActivityRuntimeSnapshot>; onRefreshPermissions(): Promise<ActivityPermissionStatus>; onRuntimeChange(next: ActivityRuntimeSnapshot): void; onOpenToolModel?: () => void; permissions: ActivityPermissionStatus | undefined; permissionError: string | undefined; runtime: ActivityRuntimeSnapshot | undefined }): React.JSX.Element {
+function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshPermissions, onRuntimeChange, permissions, permissionError, runtime }: { activity: DesktopActivitySettingsInput; onChange(patch: Partial<DesktopActivitySettingsInput>): Promise<void>; onRefreshRuntime(): Promise<ActivityRuntimeSnapshot>; onRefreshPermissions(): Promise<ActivityPermissionStatus>; onRuntimeChange(next: ActivityRuntimeSnapshot): void; permissions: ActivityPermissionStatus | undefined; permissionError: string | undefined; runtime: ActivityRuntimeSnapshot | undefined }): React.JSX.Element {
   const [languagesText, setLanguagesText] = useState(activity.ocrLanguages.join(", "));
   const [clearing, setClearing] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [feedback, setFeedback] = useState<string>();
-  const [retryingAnalysis, setRetryingAnalysis] = useState(false);
-  const [analysisFeedback, setAnalysisFeedback] = useState<{ text: string; error: boolean }>();
   const [requestingPermission, setRequestingPermission] = useState<"screen-recording" | "accessibility">();
   const [activityUpdateCount, setActivityUpdateCount] = useState(0);
-  const languagesInputRef = useRef<HTMLInputElement>(null);
+  const languagesEditRef = useRef({ dirty: false, revision: 0 });
+  const pendingLanguagesRef = useRef<{ value: string; revision: number } | undefined>(undefined);
   const activityFocusRestoreRef = useRef<{ id?: string; ariaLabel?: string } | undefined>(undefined);
-  const updateActivity = (patch: Partial<DesktopActivitySettingsInput>): void => {
+  const updateActivity = (patch: Partial<DesktopActivitySettingsInput>): Promise<boolean> => {
     const activeElement = document.activeElement instanceof HTMLElement && document.activeElement !== document.body
       ? document.activeElement
       : undefined;
@@ -40,8 +39,12 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
     }
     setActivityUpdateCount((count) => count + 1);
     setFeedback(undefined);
-    void onChange(patch).catch((error: unknown) => {
+    return onChange(patch).then(() => {
+      setFeedback(undefined);
+      return true;
+    }).catch((error: unknown) => {
       setFeedback(activityErrorMessage(error));
+      return false;
     }).finally(() => {
       setActivityUpdateCount((count) => Math.max(0, count - 1));
     });
@@ -64,26 +67,11 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
   }, [activityUpdateCount]);
 
   useEffect(() => {
-    if (document.activeElement !== languagesInputRef.current) setLanguagesText(activity.ocrLanguages.join(", "));
+    if (!languagesEditRef.current.dirty) setLanguagesText(activity.ocrLanguages.join(", "));
   }, [activity.ocrLanguages]);
 
   const refreshRuntime = (): void => {
     void onRefreshRuntime().catch((error: unknown) => setFeedback(activityErrorMessage(error)));
-  };
-  const retryFailedAnalysis = (): void => {
-    if (retryingAnalysis) return;
-    setRetryingAnalysis(true);
-    setAnalysisFeedback(undefined);
-    void window.biny.retryFailedActivityAnalysis().then(({ queued, snapshot }) => {
-      onRuntimeChange(snapshot);
-      setAnalysisFeedback({ text: queued > 0
-        ? `已将 ${queued} 条失败记录加入待分析队列。${activity.enabled ? "空闲时继续分析。" : "启用 Computer History 后继续分析。"}`
-        : "没有需要重试的失败记录。", error: false });
-    }).catch((error: unknown) => {
-      setAnalysisFeedback({ text: activityErrorMessage(error), error: true });
-    }).finally(() => {
-      setRetryingAnalysis(false);
-    });
   };
   const refreshPermissions = (): void => {
     void onRefreshPermissions().catch(() => undefined);
@@ -92,17 +80,24 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
   const commitLanguages = (): void => {
     const languages = languagesText.split(",").map((value) => value.trim()).filter(Boolean);
     if (languages.length === 0 || languages.some((value) => value.length < 2 || value.length > 32)) {
+      languagesEditRef.current.dirty = false;
       setLanguagesText(activity.ocrLanguages.join(", "));
       return;
     }
     setLanguagesText(languages.join(", "));
-  };
-  const updateLanguages = (value: string): void => {
-    setLanguagesText(value);
-    const languages = value.split(",").map((item) => item.trim()).filter(Boolean);
-    if (languages.length > 0 && languages.every((item) => item.length >= 2 && item.length <= 32)) {
-      updateActivity({ ocrLanguages: languages });
+    const key = languages.join("\u0000");
+    if (key === (pendingLanguagesRef.current?.value ?? activity.ocrLanguages.join("\u0000"))) {
+      if (pendingLanguagesRef.current) pendingLanguagesRef.current.revision = languagesEditRef.current.revision;
+      else languagesEditRef.current.dirty = false;
+      return;
     }
+    const pending = { value: key, revision: languagesEditRef.current.revision };
+    pendingLanguagesRef.current = pending;
+    void updateActivity({ ocrLanguages: languages }).then((saved) => {
+      if (pendingLanguagesRef.current !== pending) return;
+      pendingLanguagesRef.current = undefined;
+      if (saved && languagesEditRef.current.revision === pending.revision) languagesEditRef.current.dirty = false;
+    });
   };
   const openPermissionSettings = async (pane: "screen-recording" | "accessibility"): Promise<void> => {
     if (requestingPermission !== undefined) return;
@@ -199,20 +194,6 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
         {feedback ? <p aria-live="polite" className="activity-feedback" role="status">{feedback}</p> : null}
       </section>
 
-      {runtime?.analysis ? <ActivitySection id="activity-analysis" icon="activity" title="后台分析">
-        <p className="activity-section-description">待分析 {runtime.analysis.pending} · 失败 {runtime.analysis.failed}</p>
-        {runtime.analysis.latestFailure ? <>
-          {runtime.analysis.latestFailure.model ? <p className="activity-section-description">上次失败模型：{runtime.analysis.latestFailure.model}</p> : null}
-          <p className="activity-section-description is-error" role="alert">{runtime.analysis.latestFailure.error && /insufficient balance/iu.test(runtime.analysis.latestFailure.error) ? "模型余额不足。" : "分析失败。"}{runtime.analysis.latestFailure.error}</p>
-          <p className="activity-section-description">切换工具模型或恢复额度后重试。</p>
-        </> : null}
-        <div className="settings-confirm-actions">
-          {onOpenToolModel ? <button className="ghost-button" onClick={onOpenToolModel} type="button">工具模型设置</button> : null}
-          {runtime.analysis.failed > 0 ? <button aria-busy={retryingAnalysis} aria-label="重试失败分析" className="ghost-button" disabled={retryingAnalysis || clearing} onClick={retryFailedAnalysis} type="button">{retryingAnalysis ? "加入队列中…" : "重试失败分析"}</button> : null}
-        </div>
-        {analysisFeedback ? <p aria-live="polite" className={`activity-feedback${analysisFeedback.error ? " is-error" : ""}`} role={analysisFeedback.error ? "alert" : "status"}>{analysisFeedback.text}</p> : null}
-      </ActivitySection> : null}
-
       {document.documentElement.dataset.platform === "darwin" ? <ActivitySection
         action={<button aria-label="刷新 macOS 权限状态" className="activity-icon-button" onClick={refreshPermissions} title="刷新权限状态" type="button"><Icon name="refresh" size={14} /></button>}
         id="activity-permissions"
@@ -223,18 +204,18 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
           <div className="activity-permission-row">
             <ActivityPermission detail="隐私与安全性 → 屏幕录制" label="屏幕录制" status={screenPermission} />
             {screenPermission === "需授权" ? (
-              <button aria-busy={requestingPermission === "screen-recording"} aria-label="申请并在 macOS 系统设置中管理屏幕录制权限" className="activity-secondary-button" disabled={requestingPermission !== undefined} onClick={openScreenRecordingSettings} type="button">
+              <button aria-busy={requestingPermission === "screen-recording"} aria-label="申请并在 macOS 系统设置中管理屏幕录制权限" className="settings-action settings-secondary-button activity-secondary-button" disabled={requestingPermission !== undefined} onClick={openScreenRecordingSettings} type="button">
                 <Icon name="external" size={13} />
-                {requestingPermission === "screen-recording" ? "申请中…" : "申请并打开设置"}
+                申请并打开设置
               </button>
             ) : null}
           </div>
           <div className="activity-permission-row">
             <ActivityPermission detail="隐私与安全性 → 辅助功能" label="辅助功能" status={accessibilityPermission} />
             {accessibilityPermission === "需授权" ? (
-              <button aria-busy={requestingPermission === "accessibility"} aria-label="申请并在 macOS 系统设置中管理辅助功能权限" className="activity-secondary-button" disabled={requestingPermission !== undefined} onClick={openAccessibilitySettings} type="button">
+              <button aria-busy={requestingPermission === "accessibility"} aria-label="申请并在 macOS 系统设置中管理辅助功能权限" className="settings-action settings-secondary-button activity-secondary-button" disabled={requestingPermission !== undefined} onClick={openAccessibilitySettings} type="button">
                 <Icon name="external" size={13} />
-                {requestingPermission === "accessibility" ? "申请中…" : "申请并打开设置"}
+                申请并打开设置
               </button>
             ) : null}
           </div>
@@ -245,32 +226,6 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
         </div>
       </ActivitySection> : null}
 
-      <ActivitySection collapsible id="activity-capture" icon="activity" title="采集参数">
-        <div className="activity-field-grid">
-          <ActivityNumberField disabled={!activity.enabled} id="activity-debounce" label="截图防抖" hint="范围：3000–30000" unit="ms" max={30_000} min={3_000} step={100} value={activity.captureDebounceMs} onCommit={(value) => updateActivity({ captureDebounceMs: value })} />
-          <ActivityNumberField disabled={!activity.enabled} id="activity-heartbeat" label="心跳间隔" hint="画面不变时仍按此间隔保留时间锚点" unit="ms" max={300_000} min={60_000} step={1_000} value={activity.heartbeatMs} onCommit={(value) => updateActivity({ heartbeatMs: value })} />
-          <ActivityNumberField disabled={!activity.enabled} id="activity-idle" label="空闲阈值" hint="无事件达到该时长后关闭当前会话" unit="ms" max={600_000} min={10_000} step={5_000} value={activity.idleTimeoutMs} onCommit={(value) => updateActivity({ idleTimeoutMs: value })} />
-          <ActivityNumberField disabled={!activity.enabled} id="activity-input-pause" label="输入停顿" hint="无输入 N 毫秒后检查是否需要截图" unit="ms" max={5_000} min={800} step={100} value={activity.inputPauseMs} onCommit={(value) => updateActivity({ inputPauseMs: value })} />
-          <ActivityNumberField disabled={!activity.enabled} id="activity-visual-poll" label="截图轮询" hint="定期检查画面并触发截图；0 = 关闭" unit="ms" max={30_000} min={0} step={500} value={activity.visualPollMs} onCommit={(value) => updateActivity({ visualPollMs: value })} />
-          <ActivityNumberField disabled={!activity.enabled} id="activity-jpeg-quality" label="JPEG 质量" hint="30–95，越低文件越小" unit="" max={95} min={30} step={5} value={activity.jpegQuality} onCommit={(value) => updateActivity({ jpegQuality: value })} />
-        </div>
-      </ActivitySection>
-
-      <ActivitySection id="activity-ocr" icon="file" title="OCR 与输入">
-        <div className="activity-toggle-list">
-          <SettingsSwitch checked={activity.ocrEnabled} detail="对活动截图运行本地 Vision 识别。" disabled={!activity.enabled} label="对活动截图运行 Vision OCR" onChange={(ocrEnabled) => updateActivity({ ocrEnabled })} />
-          <SettingsSwitch checked={activity.inputMonitoringEnabled} detail="记录点击和键盘活动类型，不记录键值。" disabled={!activity.enabled} label="全局键盘与鼠标监听" onChange={(inputMonitoringEnabled) => updateActivity({ inputMonitoringEnabled })} />
-        </div>
-        <div className="activity-field-grid activity-ocr-fields">
-          <label className="activity-field activity-field-wide" htmlFor="activity-ocr-languages">
-            <span>OCR 语言（Vision 代码，逗号分隔）</span>
-            <input aria-describedby="activity-ocr-languages-hint" autoComplete="off" disabled={!activity.enabled} id="activity-ocr-languages" name="activity-ocr-languages" onBlur={commitLanguages} onChange={(event) => updateLanguages(event.target.value)} ref={languagesInputRef} spellCheck={false} value={languagesText} />
-            <small id="activity-ocr-languages-hint">例如 en-US, zh-Hans。</small>
-          </label>
-          <ActivityNumberField disabled={!activity.enabled} id="activity-ocr-every" label="每 N 张快照 OCR 一次" unit="" max={20} min={1} step={1} value={activity.ocrEveryNFrames} onCommit={(value) => updateActivity({ ocrEveryNFrames: value })} />
-        </div>
-      </ActivitySection>
-
       <ActivitySection id="activity-sensitive-apps" icon="display" title="不记录的应用">
         <SettingsActivityApplications excluded={activity.sensitiveApplications} onChange={async sensitiveApplications => { await onChange({ sensitiveApplications }); }} />
       </ActivitySection>
@@ -280,11 +235,37 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
           <ActivityNumberField disabled={!activity.enabled} id="activity-max-storage" label="最大存储（MB）" hint="只限制截图 JPEG；10240 = 10 GB。" unit="" max={200_000} min={100} step={100} value={activity.maxStorageMb} onCommit={(value) => updateActivity({ maxStorageMb: value })} />
           <label className="activity-field" htmlFor="activity-output-directory">
             <span>输出目录</span>
-            <input aria-describedby="activity-output-directory-hint" autoComplete="off" id="activity-output-directory" name="activity-output-directory" readOnly spellCheck={false} value={activity.outputDirectory} />
+            <input className="settings-field" aria-describedby="activity-output-directory-hint" autoComplete="off" id="activity-output-directory" name="activity-output-directory" readOnly spellCheck={false} value={activity.outputDirectory} />
             <small id="activity-output-directory-hint">全局目录，不写入当前项目。</small>
           </label>
         </div>
         <p className="activity-storage-note">事件和脱敏摘要不受容量上限影响。</p>
+      </ActivitySection>
+
+      <ActivitySection id="activity-ocr" icon="file" title="OCR 与输入">
+        <div className="activity-toggle-list">
+          <SettingsSwitch checked={activity.ocrEnabled} disabled={!activity.enabled} label="本地截图文字识别（OCR）" onChange={(ocrEnabled) => updateActivity({ ocrEnabled })} />
+          <SettingsSwitch checked={activity.inputMonitoringEnabled} detail="记录点击和键盘活动类型，不记录键值。" disabled={!activity.enabled} label="全局键盘与鼠标监听" onChange={(inputMonitoringEnabled) => updateActivity({ inputMonitoringEnabled })} />
+        </div>
+        <div className="activity-field-grid activity-ocr-fields">
+          <label className="activity-field activity-field-wide" htmlFor="activity-ocr-languages">
+            <span>OCR 语言（Vision 代码，逗号分隔）</span>
+            <input className="settings-field" aria-describedby="activity-ocr-languages-hint" autoComplete="off" disabled={!activity.enabled} id="activity-ocr-languages" name="activity-ocr-languages" onBlur={commitLanguages} onChange={(event) => { languagesEditRef.current = { dirty: true, revision: languagesEditRef.current.revision + 1 }; setLanguagesText(event.target.value); }} onKeyDown={(event) => { if (event.key === "Enter") commitLanguages(); }} spellCheck={false} value={languagesText} />
+            <small id="activity-ocr-languages-hint">例如 en-US, zh-Hans。</small>
+          </label>
+          <ActivityNumberField disabled={!activity.enabled} id="activity-ocr-every" label="每 N 张快照 OCR 一次" unit="" max={20} min={1} step={1} value={activity.ocrEveryNFrames} onCommit={(value) => updateActivity({ ocrEveryNFrames: value })} />
+        </div>
+      </ActivitySection>
+
+      <ActivitySection id="activity-capture" icon="activity" title="采集参数">
+        <div className="activity-field-grid">
+          <ActivityNumberField disabled={!activity.enabled} id="activity-debounce" label="截图防抖" hint="范围：3000–30000" unit="ms" max={30_000} min={3_000} step={100} value={activity.captureDebounceMs} onCommit={(value) => updateActivity({ captureDebounceMs: value })} />
+          <ActivityNumberField disabled={!activity.enabled} id="activity-heartbeat" label="心跳间隔" hint="画面不变时仍按此间隔保留时间锚点" unit="ms" max={300_000} min={60_000} step={1_000} value={activity.heartbeatMs} onCommit={(value) => updateActivity({ heartbeatMs: value })} />
+          <ActivityNumberField disabled={!activity.enabled} id="activity-idle" label="空闲阈值" hint="无事件达到该时长后关闭当前会话" unit="ms" max={600_000} min={10_000} step={5_000} value={activity.idleTimeoutMs} onCommit={(value) => updateActivity({ idleTimeoutMs: value })} />
+          <ActivityNumberField disabled={!activity.enabled} id="activity-input-pause" label="输入停顿" hint="无输入 N 毫秒后检查是否需要截图" unit="ms" max={5_000} min={800} step={100} value={activity.inputPauseMs} onCommit={(value) => updateActivity({ inputPauseMs: value })} />
+          <ActivityNumberField disabled={!activity.enabled} id="activity-visual-poll" label="截图轮询" hint="定期检查画面并触发截图；0 = 关闭" unit="ms" max={30_000} min={0} step={500} value={activity.visualPollMs} onCommit={(value) => updateActivity({ visualPollMs: value })} />
+          <ActivityNumberField disabled={!activity.enabled} id="activity-jpeg-quality" label="JPEG 质量" hint="30–95，越低文件越小" unit="" max={95} min={30} step={5} value={activity.jpegQuality} onCommit={(value) => updateActivity({ jpegQuality: value })} />
+        </div>
       </ActivitySection>
 
       {activity.enabled && runtime !== undefined && runtime.recentSessions.length > 0 ? (
@@ -308,11 +289,13 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
         </ActivitySection>
       ) : null}
 
-      <section className="activity-card activity-danger-zone" id="activity-danger" tabIndex={-1}>
+      <section className="settings-section activity-card activity-danger-zone" id="activity-danger" tabIndex={-1}>
         <div className="activity-section-title is-danger"><Icon name="trash" size={15} /><h3>危险区</h3></div>
-        <p className="activity-section-description">删除活动会话、事件、OCR、截图、分析和摘要。此操作不可撤销。</p>
-        <button className="activity-danger-button" disabled={clearing || runtime?.sessions === 0 || runtime === undefined} onClick={clearActivity} type="button"><Icon name="trash" size={14} />{clearing ? "清除中…" : "清除全部活动数据"}</button>
-        <small className="activity-disabled-hint">{runtime?.sessions ? undefined : runtime?.collectorAvailable === false ? "采集服务尚未接入，清除操作暂不可用。" : "暂无可清除的活动数据。"}</small>
+        <div className="settings-section-body">
+          <p className="activity-section-description">删除活动会话、事件、OCR、截图、分析和摘要。此操作不可撤销。</p>
+          <button aria-busy={clearing} className="settings-action settings-danger-button activity-danger-button" disabled={clearing || runtime?.sessions === 0 || runtime === undefined} onClick={clearActivity} type="button"><Icon name="trash" size={14} />清除全部活动数据</button>
+          <small className="activity-disabled-hint">{runtime?.sessions ? undefined : runtime?.collectorAvailable === false ? "采集服务尚未接入，清除操作暂不可用。" : "暂无可清除的活动数据。"}</small>
+        </div>
       </section>
 
       {isRuntimeRunning ? <p className="activity-running-footer">运行中 · 多数参数即时生效；会话/空闲计时相关改动在下个会话生效。</p> : null}
@@ -321,8 +304,8 @@ function SettingsActivityForm({ activity, onChange, onRefreshRuntime, onRefreshP
         <SettingsDetailLayer onClose={() => { if (!clearing) setClearOpen(false); }}>
           <section aria-describedby="activity-clear-description" aria-labelledby="activity-clear-title" aria-modal="true" className="settings-confirm-panel activity-clear-panel" role="dialog">
             <h3 id="activity-clear-title">清除全部 Computer History 数据？</h3>
-            <p id="activity-clear-description">将永久删除 {runtime?.sessions ?? 0} 个会话、{runtime?.events ?? 0} 个事件，以及截图、OCR、分析和摘要。此操作不可撤销。已沉淀的长期记忆、结晶和已导出日报不会删除。</p>
-            <div className="settings-confirm-actions"><button className="ghost-button" disabled={clearing} onClick={() => setClearOpen(false)} type="button">取消</button><button className="ghost-button is-danger" disabled={clearing} onClick={confirmClearActivity} type="button"><Icon name="trash" size={14} />{clearing ? "清除中…" : "永久清除"}</button></div>
+            <p id="activity-clear-description">将永久删除 {runtime?.sessions ?? 0} 个会话、{runtime?.events ?? 0} 个事件，以及截图、OCR、分析和摘要。此操作不可撤销。已沉淀的长期记忆和已导出日报不会删除。</p>
+            <div className="settings-confirm-actions"><button className="settings-action settings-secondary-button ghost-button" disabled={clearing} onClick={() => setClearOpen(false)} type="button">取消</button><button aria-busy={clearing} className="settings-action settings-secondary-button ghost-button is-danger" disabled={clearing} onClick={confirmClearActivity} type="button"><Icon name="trash" size={14} />永久清除</button></div>
           </section>
         </SettingsDetailLayer>
       ) : null}
@@ -365,15 +348,16 @@ function activityErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Computer History 操作失败，请稍后重试。";
 }
 
-function ActivitySection({ action, children, collapsible, icon, id, title }: { collapsible?: boolean; action?: React.ReactNode; children: React.ReactNode; icon: IconName; id: string; title: string }): React.JSX.Element {
-  if (collapsible) return <details className="activity-card settings-disclosure" id={id} tabIndex={-1}><summary><Icon name={icon} size={15} />{title}</summary><div className="settings-disclosure-body">{children}</div></details>;
+function ActivitySection({ action, children, icon, id, title }: { action?: React.ReactNode; children: React.ReactNode; icon: IconName; id: string; title: string }): React.JSX.Element {
   return (
-    <section className="activity-card" id={id} tabIndex={-1}>
+    <section className="settings-section activity-card" id={id} tabIndex={-1}>
       <div className="activity-section-heading">
         <div className="activity-section-title"><Icon name={icon} size={15} /><h3>{title}</h3></div>
         {action}
       </div>
-      {children}
+      <div className="settings-section-body">
+        {children}
+      </div>
     </section>
   );
 }
@@ -404,19 +388,18 @@ function ActivityPermission({ detail, label, status }: { detail: string; label: 
 
 function ActivitySwitch({ busy = false, checked, disabled = false, label, onChange }: { busy?: boolean; checked: boolean; disabled?: boolean; label: string; onChange(value: boolean): void }): React.JSX.Element {
   return (
-    <button aria-busy={busy} aria-checked={checked} aria-label={label} className={`activity-switch${checked ? " is-checked" : ""}`} disabled={disabled} onClick={() => onChange(!checked)} role="switch" type="button">
-      <span aria-hidden="true" className="activity-switch-track"><span /></span>
+    <button aria-busy={busy} aria-checked={checked} aria-label={label} className={`settings-switch activity-switch${checked ? " is-checked" : ""}`} disabled={disabled} onClick={() => onChange(!checked)} role="switch" type="button">
+
     </button>
   );
 }
 
-function ActivityNumberField({ disabled = false, hint, id, label, max, min, onCommit, step = 1, unit, value }: { disabled?: boolean; hint?: string; id: string; label: string; max: number; min: number; onCommit(value: number): void; step?: number; unit: string; value: number }): React.JSX.Element {
+function ActivityNumberField({ disabled = false, hint, id, label, max, min, onCommit, step = 1, unit, value }: { disabled?: boolean; hint?: string; id: string; label: string; max: number; min: number; onCommit(value: number): Promise<boolean>; step?: number; unit: string; value: number }): React.JSX.Element {
   const [text, setText] = useState(String(value));
-  const inputRef = useRef<HTMLInputElement>(null);
-  const lastSentValueRef = useRef<number | undefined>(undefined);
+  const editRef = useRef({ dirty: false, revision: 0 });
+  const pendingValueRef = useRef<{ value: number; revision: number } | undefined>(undefined);
   useEffect(() => {
-    if (value === lastSentValueRef.current) lastSentValueRef.current = undefined;
-    if (document.activeElement !== inputRef.current) setText(String(value));
+    if (!editRef.current.dirty) setText(String(value));
   }, [value]);
   const clamp = (raw: string): number | undefined => {
     if (raw.trim() === "") return undefined;
@@ -425,18 +408,24 @@ function ActivityNumberField({ disabled = false, hint, id, label, max, min, onCo
     return Math.min(max, Math.max(min, Math.trunc(parsed)));
   };
   const send = (next: number): void => {
-    if (next === value || next === lastSentValueRef.current) return;
-    lastSentValueRef.current = next;
-    onCommit(next);
-  };
-  const handleChange = (raw: string): void => {
-    setText(raw);
-    const next = clamp(raw);
-    if (next !== undefined) send(next);
+    if (next === (pendingValueRef.current?.value ?? value)) {
+      if (pendingValueRef.current) pendingValueRef.current.revision = editRef.current.revision;
+      else editRef.current.dirty = false;
+      return;
+    }
+    const pending = { value: next, revision: editRef.current.revision };
+    pendingValueRef.current = pending;
+    // 只合并最新在途值；旧响应不能清掉后来编辑的草稿，失败后允许同值重试。
+    void onCommit(next).then((saved) => {
+      if (pendingValueRef.current !== pending) return;
+      pendingValueRef.current = undefined;
+      if (saved && editRef.current.revision === pending.revision) editRef.current.dirty = false;
+    });
   };
   const commit = (): void => {
     const next = clamp(text);
     if (next === undefined) {
+      editRef.current.dirty = false;
       setText(String(value));
       return;
     }
@@ -446,7 +435,7 @@ function ActivityNumberField({ disabled = false, hint, id, label, max, min, onCo
   return (
     <label className="activity-field" htmlFor={id}>
       <span>{label}</span>
-      <div className="activity-number-input"><input aria-describedby={hint ? `${id}-hint` : undefined} autoComplete="off" disabled={disabled} id={id} inputMode="numeric" max={max} min={min} name={id} onBlur={commit} onChange={(event) => handleChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} ref={inputRef} step={step} type="number" value={text} />{unit ? <em>{unit}</em> : null}</div>
+      <div className="activity-number-input"><input aria-describedby={hint ? `${id}-hint` : undefined} autoComplete="off" disabled={disabled} id={id} inputMode="numeric" max={max} min={min} name={id} onBlur={commit} onChange={(event) => { editRef.current = { dirty: true, revision: editRef.current.revision + 1 }; setText(event.target.value); }} onKeyDown={(event) => { if (event.key === "Enter") commit(); }} step={step} type="number" value={text} />{unit ? <em>{unit}</em> : null}</div>
       {hint ? <small id={`${id}-hint`}>{hint}</small> : null}
     </label>
   );

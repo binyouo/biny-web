@@ -14,21 +14,21 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { AgentModel, AgentMessage, AgentUsage } from "./core/types.js";
 import type { AgentPermissionRequest, AgentPermissionResult, AgentRuntimeContext, AgentSessionEvent, AgentTurnOutcome } from "./types.js";
 import { type ChatDiaryRefreshResult } from "./context/chatDiary.js";
-import { type SelfReflectionActionCandidate } from "./context/selfReflection.js";
 import { LocalMemory } from "./context/LocalMemory.js";
 import { IdentityStorage } from "./context/identityStorage.js";
 import { SessionSearchIndex } from "../session/searchIndex.js";
-import { type MemoryEmbeddingRuntimeStatus } from "./context/MemoryEmbeddingService.js";
-import { CrystalService } from "./context/crystalService.js";
+import type { MemoryEmbeddingRuntimeStatus } from "./context/MemoryEmbeddingService.js";
 import type { ContextStatus } from "./context/types.js";
 import { type ModelRequestSummary } from "../observability/modelRequests.js";
+import { type ModelUsageIdentity } from "../observability/usage.js";
 import type { SessionUsage, UsageOperation, UsageSummary } from "../session/metadata.js";
 import type { EmbeddingModelRuntime, LocalEmbeddingModelId } from "../llm/embedding/types.js";
 import { type AgentAttachment } from "../attachments/store.js";
+import { PluginLifecycleRegistry } from "../extensions/pluginLifecycle.js";
 import { TodoStore } from "../session/todoStore.js";
 import type { SessionGoalExpectation, SessionGoalStore } from "../runtime/SessionGoalStore.js";
 import { type AgentPersonalizationState, type ChatPersonalizationOverridePatch, type GlobalPersonalizationUpdate } from "../personalization/index.js";
-import type { MemoryEntry, MemorySearchOptions, MemorySearchResult, MemorySimilarSearchOptions, MemorySimilarityScan } from "./context/memoryTypes.js";
+import type { MemoryEntry, MemorySearchOptions, MemorySearchResult, MemorySimilarityScan } from "./context/memoryTypes.js";
 import { type AgentCapabilitySelection } from "./capabilitySelection.js";
 import type { CheckpointEvidenceArgs } from "../extensions/checkpointEvidence.js";
 import type { CapabilityPreselectionInput } from "./capabilityPreselection.js";
@@ -39,12 +39,15 @@ export interface AgentSessionOptions {
     config: AgentConfig;
     model?: AgentModel;
     /** Activity 本地嵌入边界；宿主可共享已加载运行时，测试可注入协议 fake。 */
-    getActivityEmbeddingRuntime?: () => Promise<EmbeddingModelRuntime | undefined>;
+    getActivityEmbeddingRuntime?: (signal?: AbortSignal) => Promise<EmbeddingModelRuntime | undefined>;
     toolRegistry: ToolRegistry;
     permissionManager: PermissionManager;
     recorder: SessionRecorder;
+    /** 旧 recorder 被放弃时，由装配层收回该会话的外部资源。 */
+    releaseSessionResources?: () => Promise<void>;
     modelManager?: ModelManager;
     skillPrompt?: string | ((selection?: AgentCapabilitySelection["skills"], runId?: string) => string | undefined | Promise<string | undefined>);
+    skillNames?: (selection?: AgentCapabilitySelection["skills"], runId?: string) => string[];
     /** 具名子代理定义元数据段（Task 可用的 agent 列表）。 */
     subagentPrompt?: string;
     skillPaths?: string[] | ((selection?: AgentCapabilitySelection["skills"], runId?: string) => string[]);
@@ -66,6 +69,8 @@ export interface AgentSessionOptions {
     runtimeEventSink?: RuntimeEventSink;
     /** Host-owned MCP/Plugin 调用的统一 Capability authority。 */
     capabilities?: CapabilityStore;
+    /** Optional plugin hooks for automatic turn context and post-turn synchronization. */
+    pluginLifecycle?: PluginLifecycleRegistry;
     /** 回合完成后识别出可复用 Recipe；只通知界面，不创建任何对象。 */
     onRecipeReady?: (notice: {
         recipe: import("../session/recipes.js").RecipeSuggestion;
@@ -76,18 +81,21 @@ export interface AgentSessionOptions {
         messageId: string;
         events: readonly SessionEvent[];
         minToolCalls: number;
+        onAnalyzed: (toolCallCount: number) => Promise<void>;
         onNotice: (notice: SkillExtractionNotice) => void;
     }) => Promise<SkillExtractionOutcome | undefined>;
     /** 提取进度只通知界面，不进入消息时间线。 */
     onSkillExtractionUpdate?: (notice: SkillExtractionNotice & {
         runId: string;
+        sessionId: string;
     }) => void;
     onTitleGenerated?: (sessionId: string, title: string) => void;
-    /** 自省识别出明确未完成行动后的持久化入口；只创建记录，不启动任务。 */
-    createSelfReflectionTask?: (candidate: SelfReflectionActionCandidate) => Promise<boolean>;
 }
 export interface AgentRunOptions {
     abortSignal?: AbortSignal;
+    /** Selects one run's model and metadata without changing the saved chat selection. */
+    modelOverride?: ModelManager;
+    fastMode?: boolean;
     /** 后台发起的消息保留来源，防止被当成用户原话建立日期索引。 */
     source?: "heartbeat" | "auto";
     confirmPermission?: (request: AgentPermissionRequest) => Promise<AgentPermissionResult>;
@@ -192,18 +200,22 @@ export declare class AgentSession {
     private readonly soulStorage;
     private readonly emotionStorage;
     private readonly fatigueService;
+    private readonly activityContextAbort;
+    private readonly pendingActivityContextTasks;
+    private activityContextClose;
     private readonly emotionAnalysisScheduler;
+    private readonly pendingRecipeTasks;
+    private recipeSuggestionsClosed;
     private readonly memoryModelFor;
     private readonly toolModel;
     private titleTask?;
     private titleTaskSessionId?;
     private pendingTitleSessionId?;
     private readonly titleAbort;
-    private readonly localEmbeddingManager;
     private readonly memoryRetriever;
     private readonly memoryEmbeddingService;
-    private readonly crystalService;
     private usageRecords;
+    private readonly auxiliaryUsageModels;
     private sessionGoalRequest?;
     private runSessionGoalId?;
     private sessionGoalUsageFailure?;
@@ -214,10 +226,8 @@ export declare class AgentSession {
     private activeOperation;
     private activeRunMessageQueues;
     private readonly lingeringExternalTools;
-    private readonly pendingCrystalTasks;
-    private readonly queuedCrystalRuns;
+    private pendingSkillExtraction;
     private readonly pendingMemoryTasks;
-    private temporalIndexFlight;
     /** Runtime 已接纳的普通发送；让 canonical user_message 先于前台 generating 状态落盘。 */
     private readonly admittedUserMessages;
     private readonly pendingUserAdmissions;
@@ -231,6 +241,9 @@ export declare class AgentSession {
     private nextSessionMessageIndex;
     /** 新 root turn 开始时替换；同一 turn 的所有 model step 固定使用这份快照。 */
     private activeConfig;
+    /** 手动压缩独占期间的摘要配置，不改写对话回合或其它功能的 activeConfig。 */
+    private manualCompactionConfig?;
+    private activeModelOverride?;
     private activePersonalization;
     constructor(options: AgentSessionOptions);
     initialize(): Promise<void>;
@@ -238,8 +251,12 @@ export declare class AgentSession {
     private extensionPrompt;
     private skillPrompt;
     private skillPaths;
+    private recordLoadedSkills;
     private dailyNotesPrompt;
+    private trackActivityContextTask;
+    private closeActivityContext;
     private activityContextPrompt;
+    private readActivityContextPrompt;
     /**
      * Fork 会话只补充父线程的轻量摘要；分支后的真实历史仍由 ContextMemory 管理，避免把父会话
      * 全量重新塞进每次请求。父线程读取失败时不阻断当前会话。
@@ -281,9 +298,7 @@ export declare class AgentSession {
     getSessionSearchIndex(): SessionSearchIndex;
     /** 把当前会话 JSONL 的新增消息增量刷入检索索引。 */
     flushSessionSearchIndex(signal?: AbortSignal): Promise<void>;
-    private scheduleTemporalIndex;
-    getCrystalService(): CrystalService;
-    /** 刷新文件型每日工作日志，并按记忆开关自动晋升高置信度自省结果。 */
+    /** 显式刷新聊天工作摘要；人格自省由正常 Agent 按 Skill 执行。 */
     refreshDailyDiary(dateKey: string, options?: {
         signal?: AbortSignal;
         force?: boolean;
@@ -297,22 +312,24 @@ export declare class AgentSession {
     private recordFatigueForMessages;
     /** 手动搜索与自动召回共用语义检索；显式 scope 缺省时搜索共享记忆库。 */
     searchMemory(query: string, paths: string[], options?: MemorySearchOptions): Promise<MemorySearchResult>;
-    cancelMemoryMaintenance(): boolean;
+    cancelMemoryMaintenance(): Promise<boolean>;
+    memoryMaintenanceStatus(historyLimit?: number): Promise<import("./context/memoryTypes.js").MemoryMaintenanceStatus>;
+    runMemoryMaintenance(): Promise<unknown>;
+    previewMemoryMaintenance(): Promise<import("./context/memoryTypes.js").MemorySleepPreview>;
+    maintainMemory(): Promise<void>;
     memoryEmbeddingStatus(): Promise<MemoryEmbeddingRuntimeStatus>;
     storedMemoryEmbeddingModel(): string | null;
     downloadMemoryEmbeddingModel(model: LocalEmbeddingModelId, signal?: AbortSignal): Promise<void>;
-    cancelMemoryEmbeddingDownload(model: LocalEmbeddingModelId): boolean;
+    cancelMemoryEmbeddingDownload(model: LocalEmbeddingModelId): Promise<boolean>;
     removeMemoryEmbeddingModel(model: LocalEmbeddingModelId): Promise<{
         filesDeleted: number;
         bytesFreed: number;
     }>;
     rebuildMemoryEmbeddingIndex(signal?: AbortSignal): Promise<void>;
-    cancelMemoryEmbeddingRebuild(): boolean;
+    cancelMemoryEmbeddingRebuild(): Promise<boolean>;
     indexMemoryEntry(entry: MemoryEntry): Promise<void>;
-    prepareMemorySynthesis(content: string, signal?: AbortSignal): Promise<((entry: MemoryEntry) => void) | undefined>;
     findMemorySimilarityPairs(entries: readonly MemoryEntry[], minimumSimilarity: number, signal?: AbortSignal): Promise<MemorySimilarityScan>;
-    findMemorySimilarEntries(query: string, options: MemorySimilarSearchOptions): Promise<MemoryEntry[] | undefined>;
-    removeMemoryEmbeddingEntries(entryIds: readonly string[]): void;
+    removeMemoryEmbeddingEntries(entryIds: readonly string[]): Promise<void>;
     /** 三端共享的读模型；正文只在 global/chat 配置中，resolved 元数据可安全投影到 session。 */
     getPersonalizationState(): Promise<AgentPersonalizationState>;
     /** 更新当前聊天覆盖。catalog 的内容哈希是跨进程 CAS，过期界面不能覆盖新值。 */
@@ -360,6 +377,9 @@ export declare class AgentSession {
     private runExternalAcp;
     private runTurnLoop;
     runTask(input: string, runOptions?: AgentRunOptions): Promise<AgentTurnOutcome>;
+    /** Finish the old session's memory work and usage before replacing its recorder. */
+    private settleSessionMemory;
+    private closeReplacedSession;
     resume(session: string | undefined): Promise<ResumedAgentSession>;
     /**
      * 开始一个全新的空会话，但不销毁这个 AgentSession。
@@ -391,10 +411,12 @@ export declare class AgentSession {
     usageReport(): string;
     /** 当前激活模型不支持媒体时返回明确错误；输入本身已先写入会话，方便恢复和切换模型后重试。 */
     assertAttachmentsSupported(attachments: AgentAttachment[]): void;
-    observeModelUsage(usage: AgentUsage, operation: UsageOperation, modelAlias?: string): void;
+    observeModelUsage(usage: AgentUsage, operation: UsageOperation, model?: ModelUsageIdentity): void;
     private usedExternalContext;
     /** 回合终态后的旁路检测；它读取 canonical session，不增加模型请求或改变回合结果。 */
     private enqueueRecipeSuggestions;
+    private drainRecipeSuggestions;
+    private collectRecipeSuggestions;
     /**
      * 回合后技能提取（自进化）：只在成功回合触发，由宿主装配的辅助模型与技能目录
      * 完成分析；保存成功后向本回合消息记 metadata 留审计痕迹。任何失败静默。
@@ -407,6 +429,8 @@ export declare class AgentSession {
     switchModel(alias: string, thinking?: ThinkingSelection): Promise<ModelRuntimeInfo>;
     refreshModelFromDisk(): Promise<ModelRuntimeInfo>;
     refreshModelCatalog(providerAlias?: string): Promise<ModelChoice[]>;
+    private currentModelManager;
+    private currentModel;
     getInfo(): AgentSessionInfo;
     getPermissionMode(): PermissionMode;
     /** 装配期 AgentSession 先于宿主 Runtime 构造；宿主构造完成后再用 setter 接上事件通道。 */
@@ -440,20 +464,19 @@ export declare class AgentSession {
     private recordCanonicalMessage;
     private referenceForRecordedMessage;
     private recordIntermediateAssistant;
+    /** 已完成回合的记忆写入仍在进行时，Host 不能把会话视为空闲进程。 */
+    hasPendingMemoryWork(): boolean;
     close(): Promise<void>;
     private beginOperation;
     private assertNotQuarantined;
+    private usageModelInfo;
     private recordModelUsage;
     private takeRelatedUsage;
     private runtimeContext;
     private persistenceRoot;
     private configStore;
     private readPersonalizationState;
-    private providerEmbeddingModels;
-    private resolvedMemoryEmbeddingRef;
-    private activeMemoryEmbeddingRuntime;
     private refreshMemoryConfig;
-    private clearEmbeddingRebuildMarker;
     /**
      * 只把权限模式写回配置文件。
      *
@@ -464,6 +487,5 @@ export declare class AgentSession {
      */
     private savePermissionMode;
     private supportedAttachments;
-    private rehydrateSessionAttachments;
-    private scheduleCrystalRun;
+    private rehydrateSessionMessages;
 }

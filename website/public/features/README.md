@@ -1,10 +1,11 @@
 # 首页能力截图
 
-工具调用、联网搜索和 Computer History 使用用户于 2026-11-01 指定的三张截图。图片原样复制，不重绘、不裁切、不修改数据或工具状态；按原始宽高比展示，点击可放大。
+工具调用与 Code Mode 截图于 2026-11-04 从当前 Desktop 演示生成（「换个模型接着想」展开写入与执行工具；Code Mode 场景展开 `run_script` 脚本）；联网搜索和 Computer History 使用用户于 2026-11-01 指定的截图。图片按原始宽高比展示，点击可放大。
 
 | 文件 | 展示内容 | 尺寸 |
 | --- | --- | --- |
-| `tool-calls.png` | 工具调用：文件变更与命令执行记录 | 1357 × 828 |
+| `code-mode.png` | Code Mode：`run_script` 脚本参数与汇总提交结果 | 1353 × 828 |
+| `tool-calls.png` | 工具调用：`src/utils/sort.ts` 文件差异与 `pnpm test` 执行结果 | 1353 × 828 |
 | `web-research.png` | 联网搜索：MDN 抓取记录、对比表格与来源 | 1357 × 828 |
 | `computer-history.png` | Computer History：运行统计、授权与排除应用 | 759 × 683 |
 

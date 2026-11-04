@@ -24,6 +24,8 @@ export declare class AttachmentImportCleanupError extends Error {
 }
 export interface AttachmentImportBatch {
     save(name: string, mimeType: string, bytes: Uint8Array): Promise<AttachmentReference>;
+    /** Reserve an unavailable imported reference without creating substitute bytes. */
+    reserveMissing(name: string): Promise<string>;
     commit(): void;
     /** Returns files retained because their ownership or cleanup could not be confirmed. */
     rollback(): Promise<string[]>;
@@ -45,9 +47,12 @@ export declare function attachmentFilePath(root: string, virtualPath: string): s
 export declare function sanitizeAttachmentName(name: string): string;
 /** 隐藏上下文仅由主进程写入；历史事件只保留附件引用，重放时从同一私有目录读取。 */
 export declare function saveAttachmentContext(root: string, virtualPath: string, context: string): Promise<void>;
+/** 草稿可更新，首次交给模型时固定为不可变的历史上下文。 */
+export declare function savePendingAttachmentContext(root: string, virtualPath: string, context: string): Promise<void>;
+export declare function updatePendingAttachmentContext(root: string, virtualPath: string, context: string): Promise<boolean>;
 export declare function readAttachmentContext(root: string, virtualPath: string): Promise<string | undefined>;
 export declare function attachmentMessageParts(attachments: AgentAttachment[]): ({
-    type: "audio" | "image";
+    type: "image" | "audio";
     data: string;
     mimeType: string;
 } | {

@@ -6,3 +6,4 @@ website/.mount-test-*/
 .env.*
 !.env.example
 .DS_Store
+.pnpm-store/

@@ -33,22 +33,6 @@ export interface TaskAttemptRecord {
 export interface TaskRunWithAttempts extends TaskRunRecord {
     attempts: TaskAttemptRecord[];
 }
-export interface LegacyWorkerOwnerProof {
-    taskRunId: string;
-    attemptId: string;
-    expectedRevision: number;
-    sessionId: string;
-    parentRunId: string;
-    runId: string;
-    turnId: string;
-    prompt: string;
-    workspaceRoot: string;
-    parentEventIds: string[];
-    /** Present only when exact output and completed Worker terminal evidence agree. */
-    completionDigest?: string;
-}
-/** Only the original ownerless slash admission or its exact restart blocker. */
-export declare function isLegacyWorkerOwnerBoundary(task: TaskRunWithAttempts): boolean;
 export interface TaskRunEvent {
     eventId: string;
     attemptId?: string;
@@ -72,6 +56,7 @@ export interface TaskAttemptCreateInput {
 export interface TaskRunListOptions {
     order?: "asc" | "desc";
     status?: TaskRunStatus;
+    sessionId?: string;
     limit?: number;
     cursor?: number;
 }
@@ -110,9 +95,6 @@ export declare class DurableTaskRunStore {
         artifacts: TaskCandidateArtifacts;
     }): TaskRunWithAttempts;
     resumeWorkerAttempt(taskRunId: string, attemptId: string, expectedRevision: number): TaskRunWithAttempts;
-    /** Called only after the exact legacy Worker has prepared under its recorded policy. */
-    reconcileWorkerOwner(proof: LegacyWorkerOwnerProof): TaskRunWithAttempts;
-    /** 只有失败任务可以显式重试；新 attempt 会在执行入口创建。 */
     retry(taskRunId: string): TaskRunWithAttempts;
     syncSubagentSnapshot(snapshot: SubagentTaskSnapshot, binding?: {
         taskRunId?: string;
@@ -132,8 +114,10 @@ export declare class DurableTaskRunStore {
         nextCursor?: number;
         hasMore: boolean;
     };
-    /** Recovery needs the newest append, independently of the public history page size. */
-    latestEvent(taskRunId: string): TaskRunEvent | undefined;
+    /** Recovery may ignore delivery receipts, which do not change execution admission. */
+    latestEvent(taskRunId: string, options?: {
+        excludeMessageReceipts?: boolean;
+    }): TaskRunEvent | undefined;
     events(taskRunId: string, limit?: number): TaskRunEvent[];
     hasMessageReceipt(taskRunId: string, messageId: string): boolean;
     recordMessageReceipt(taskRunId: string, attemptId: string, messageId: string): void;

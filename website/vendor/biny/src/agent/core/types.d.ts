@@ -1,8 +1,7 @@
 /**
  * Biny 自有 Agent Runtime 的基础协议。
  *
- * 这里不依赖任何模型 SDK。Provider 只需要把自己的流式响应归一化成
- * `ModelStreamEvent`，Agent Loop 就可以独立处理消息、工具和事件生命周期。
+ * API 模型使用 LanguageModelV4；ModelStreamEvent 是界面与会话的展示事件。
  */
 import type { JsonSchema } from "../../tools/schema.js";
 import type { ToolNamespace } from "../../tools/types.js";
@@ -36,6 +35,7 @@ export type AgentToolCallContent = {
     name: string;
     arguments: Record<string, unknown>;
     invalid?: boolean;
+    providerMetadata?: Record<string, unknown>;
 };
 export type AgentToolResultContent = AgentTextContent | AgentImageContent;
 export type AgentMessage = AgentUserMessage | AgentAssistantMessage | AgentToolResultMessage;
@@ -44,6 +44,9 @@ export interface AgentUserMessage {
     content: string | Array<AgentTextContent | AgentImageContent | AgentAudioContent>;
     /** 仅宿主注入瞬态上下文时保存原文；清理和遥测不能靠用户可输入的文本标记识别来源。 */
     originalContent?: AgentUserMessage["content"];
+    /** 原始消息发送时间及当时记录的时区；独立于本轮当前时间和正文中的事件时间。 */
+    sentAt?: string;
+    sentAtTimeZone?: string;
     timestamp?: number;
 }
 export interface AgentAssistantMessage {
@@ -73,7 +76,7 @@ export interface AgentUsage {
     cacheWriteTokens?: number;
     cacheMissTokens?: number;
 }
-export type ModelRequestOperation = "agent" | "compaction" | "memory" | "subagent";
+export type ModelRequestOperation = "agent" | "compaction" | "memory" | "subagent" | "vision";
 export type ModelRequestErrorCode = "aborted" | "timeout" | "context_overflow" | "http_error" | "network_error" | "protocol_error" | "provider_error" | "unknown";
 export type ModelRequestErrorPhase = "request" | "stream";
 export interface ModelRequestContext {
@@ -124,6 +127,8 @@ export interface AgentToolResult<TDetails = unknown> {
     content: AgentToolResultContent[];
     details?: TDetails;
     isError?: boolean;
+    /** Host classification for Code Mode recovery; never inferred from tool-provided details. */
+    recoverableError?: boolean;
     /** 当前工具批次完成后是否可以跳过下一次模型请求。 */
     terminate?: boolean;
     usage?: AgentUsage;
@@ -164,6 +169,7 @@ export interface ModelStreamOptions {
     temperature?: number;
     reasoning?: "off" | ReasoningEffort;
     providerOptions?: Record<string, unknown>;
+    serviceTier?: "priority";
     /** 按协议给稳定前缀打 prompt 缓存标记；undefined 时不下发标记。 */
     cacheMarkers?: CacheMarkerPlan;
     timeoutMs?: number;
@@ -176,7 +182,9 @@ export interface AgentModel {
     modelId: string;
     /** 辅助文本请求在同一取消/超时边界内准备凭据，返回续期后的独立模型。 */
     prepareTextRequest?(signal?: AbortSignal): Promise<AgentModel>;
-    /** ProviderRuntime 创建的模型同时保留 Vercel 实例，辅助文本调用也复用同一条 provider 链路。 */
+    /** Pure, per-request capability projection; undefined reasoning means no supported override. */
+    resolveTextReasoning?(requested: NonNullable<ModelStreamOptions["reasoning"]>): Pick<ModelStreamOptions, "reasoning" | "providerOptions">;
+    /** API 模型的唯一执行协议；ACP 外部 Agent 不提供此实例。 */
     vercelModel?: LanguageModelV4;
     /** 与 Vercel 实例配套的模型级默认参数；调用方显式传入的辅助参数优先。 */
     vercelOptions?: {
@@ -190,8 +198,8 @@ export interface AgentModel {
     /** 这是显式元数据，不是由 provider 名称或 URL 推导出的结论。 */
     dataResidency?: ActivityDataResidency;
     supportsTools?: boolean;
-    /** 显式注入的本地/测试模型可以提供的最小兼容流；配置 Provider 统一使用 vercelModel。 */
-    stream?(context: ModelStreamContext, options?: ModelStreamOptions): Promise<AsyncIterable<ModelStreamEvent>>;
+    supportsVision?: boolean;
+    serviceTiers?: Array<"priority">;
 }
 export type ModelStreamEvent = {
     type: "start";
@@ -288,6 +296,8 @@ export type AgentEvent = {
     reason?: "step_limit";
 };
 export interface AgentLoopTurnContext {
+    /** Transient logical provider-call identity for request-owned diagnostics. */
+    requestId?: string;
     message: AgentAssistantMessage;
     toolResults: AgentToolResultMessage[];
     context: AgentContext;

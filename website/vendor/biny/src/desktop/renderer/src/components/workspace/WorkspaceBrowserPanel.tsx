@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { DesktopBrowserAction, DesktopBrowserSnapshot } from "../../../../protocol.js";
 import type { LocalReferenceResult } from "../../../../../session/localReferences.js";
 import { Icon } from "../Icon.js";
+import { BrowserEnvironmentMenu } from "./BrowserEnvironmentMenu.js";
 
 export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExpanded, onAttachReference, onWarning, onOpenTerminal, onFixPreview }: {
   projectId: string;
@@ -29,15 +30,19 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
   const [importingProfileId, setImportingProfileId] = useState<string>();
   const [profileError, setProfileError] = useState<string>();
   const [previewAvailability, setPreviewAvailability] = useState<{ available: true; command: string } | { available: true; kind: "static"; entry: string; entries: string[] } | { available: false; reason: string }>();
+  const [availabilityChecking, setAvailabilityChecking] = useState(false);
+  const availabilityRequest = useRef({ projectId, checked: false, pending: false });
   const [htmlPickerOpen, setHtmlPickerOpen] = useState(false);
   const [selectedHtmlFile, setSelectedHtmlFile] = useState<string>();
   const serverPending = useRef(false);
+  const previewOperationGeneration = useRef(0);
   const exitedServers = useRef(new Set<string>());
   const openedPreviewUrls = useRef(new Set<string>());
   const [busy, setBusy] = useState(false);
   const slot = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLElement>(null);
   const addressInput = useRef<HTMLInputElement>(null);
+  const addressEditRef = useRef({ tab: "", edited: false });
   const focusAfterAction = useRef<string | undefined>(undefined);
   const profileAnchor = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
@@ -48,6 +53,8 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
   }, [projectId]);
   useEffect(() => {
     setSnapshot(undefined); setServerId(undefined); setStaticUrl(undefined); setServerStarting(false); setPreviewAvailability(undefined);
+    availabilityRequest.current = { projectId, checked: false, pending: false };
+    setAvailabilityChecking(false);
     openedPreviewUrls.current.clear();
     setPreviewFailure(undefined); setProfilePickerOpen(false); setProfiles([]); setHtmlPickerOpen(false); setSelectedHtmlFile(undefined);
   }, [projectId]);
@@ -65,7 +72,11 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
     void window.biny.browserSnapshot(projectId).then(adopt).catch((reason: unknown) => { if (alive.current) setError(String(reason)); });
     return () => { alive.current = false; unsubscribe(); };
   }, [adopt, projectId]);
-  useEffect(() => setAddress(selected?.url ?? ""), [selected?.id, selected?.url]);
+  useEffect(() => {
+    const tab = `${projectId}:${selected?.id ?? ""}`;
+    if (addressEditRef.current.tab !== tab) addressEditRef.current = { tab, edited: false };
+    if (!addressEditRef.current.edited) setAddress(selected?.url ?? "");
+  }, [projectId, selected?.id, selected?.url]);
   const perform = async (action: DesktopBrowserAction): Promise<void> => {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError(undefined);
@@ -103,39 +114,69 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
     if (target === "address") addressInput.current?.focus();
     else if (target) tab?.focus();
   }, [snapshot, busy, active]);
+  const refreshAvailability = useCallback(async (): Promise<void> => {
+    const request = availabilityRequest.current;
+    if (request.projectId !== projectId || request.pending) return;
+    request.pending = true;
+    request.checked = true;
+    setAvailabilityChecking(true);
+    setError(undefined);
+    try {
+      const availability = await window.biny.projectPreviewAvailability(projectId);
+      if (!alive.current || availabilityRequest.current !== request) return;
+      setPreviewAvailability(availability);
+      setSelectedHtmlFile(current => current && availability.available && "kind" in availability && availability.entries.includes(current) ? current : undefined);
+      setHtmlPickerOpen(false);
+    } catch (reason) {
+      if (alive.current && availabilityRequest.current === request) setError(String(reason));
+    } finally {
+      request.pending = false;
+      if (alive.current && availabilityRequest.current === request) setAvailabilityChecking(false);
+    }
+  }, [projectId]);
+  useEffect(() => {
+    if (active && !availabilityRequest.current.checked) void refreshAvailability();
+  }, [active, refreshAvailability]);
   useEffect(() => {
     if (!active) return;
     let disposed = false;
+    // Snapshot reads are effect-local; only a checked tab or an actual new-tab
+    // dispatch claims the shared URL, so retiring a read cannot suppress reopening.
+    const pendingPreviewUrls = new Map<string, number>();
     const refreshStatus = async (): Promise<void> => {
+      const generation = previewOperationGeneration.current;
+      const isCurrent = (): boolean => !disposed && !serverPending.current
+        && generation === previewOperationGeneration.current;
+      if (!isCurrent()) return;
       try {
         const status = await window.biny.projectPreviewStatus(projectId);
-        if (disposed || serverPending.current) return;
+        if (!isCurrent()) return;
         setServerId(status.kind === "script" || status.kind === "starting" ? status.terminalId : undefined);
         setStaticUrl(status.kind === "static" ? status.url : undefined);
         setServerStarting(status.kind === "starting");
         if (status.kind === "failed") { setPreviewFailure(status.error); openedPreviewUrls.current.clear(); }
         if (status.kind === "failed") setServerNotice(undefined);
         if (status.kind === "script" || status.kind === "static") {
-          if (!openedPreviewUrls.current.has(status.url)) {
-            openedPreviewUrls.current.add(status.url);
+          if (!openedPreviewUrls.current.has(status.url) && pendingPreviewUrls.get(status.url) !== generation) {
+            pendingPreviewUrls.set(status.url, generation);
             try {
               const current = await window.biny.browserSnapshot(projectId);
-              if (!current.tabs.some((tab) => tab.url === status.url)) adopt(await window.biny.browserAction(projectId, { type: "new", url: status.url }));
-            } catch (reason) { if (!disposed) setError(String(reason)); }
+              if (!isCurrent()) return;
+              // Keep the existing attempted-open semantics, including failures. Claim
+              // before dispatch so a reactivated effect cannot open a duplicate tab.
+              openedPreviewUrls.current.add(status.url);
+              if (!current.tabs.some((tab) => tab.url === status.url)) {
+                const next = await window.biny.browserAction(projectId, { type: "new", url: status.url });
+                if (isCurrent()) adopt(next);
+              }
+            } catch (reason) { if (isCurrent()) setError(String(reason)); }
+            finally {
+              if (pendingPreviewUrls.get(status.url) === generation) pendingPreviewUrls.delete(status.url);
+            }
           }
         }
-      } catch (reason) { if (!disposed) setError(String(reason)); }
+      } catch (reason) { if (isCurrent()) setError(String(reason)); }
     };
-    const refreshAvailability = (): void => {
-      void window.biny.projectPreviewAvailability(projectId).then((availability) => {
-        if (!disposed) {
-          setPreviewAvailability(availability);
-          setSelectedHtmlFile((current) => current && availability.available && "kind" in availability && availability.entries.includes(current) ? current : undefined);
-        }
-      }).catch((reason: unknown) => { if (!disposed) setError(String(reason)); });
-    };
-    refreshAvailability();
-    window.addEventListener("focus", refreshAvailability);
     void refreshStatus();
     const statusTimer = window.setInterval(() => { void refreshStatus(); }, 500);
     const unsubscribe = window.biny.onTerminalEvent((event) => {
@@ -146,7 +187,7 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
         void refreshStatus();
       }
     });
-    return () => { disposed = true; window.clearInterval(statusTimer); unsubscribe(); window.removeEventListener("focus", refreshAvailability); };
+    return () => { disposed = true; window.clearInterval(statusTimer); unsubscribe(); };
   }, [active, adopt, projectId]);
   const toggleServer = async (entry?: string): Promise<void> => {
     if (serverPending.current || (!serverId && !staticUrl && previewAvailability?.available === false)) return;
@@ -156,6 +197,7 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
       return;
     }
     setHtmlPickerOpen(false);
+    previewOperationGeneration.current += 1;
     serverPending.current = true; setServerBusy(true); setError(undefined); setPreviewFailure(undefined);
     try {
       if (serverId || staticUrl) {
@@ -188,6 +230,7 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
     finally { serverPending.current = false; if (alive.current) setServerBusy(false); }
   };
   const navigate = (): void => {
+    if (pending.current) return;
     const raw = address.trim();
     if (!raw) return;
     try {
@@ -199,6 +242,7 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
         : `https://www.google.com/search?${new URLSearchParams({ q: raw })}`;
       const url = new URL(value);
       if (!["http:", "https:"].includes(url.protocol)) throw new Error("请输入 HTTP 或 HTTPS 地址。");
+      addressEditRef.current.edited = false;
       void perform(selected ? { type: "navigate", tabId: selected.id, url: url.href } : { type: "new", url: url.href });
     } catch (reason) { setError(String(reason)); }
   };
@@ -296,12 +340,15 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
           const index = tabs.findIndex((item) => item.id === tab.id);
           const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowLeft" ? -1 : 1) + tabs.length) % tabs.length;
           void perform({ type: "select", tabId: tabs[next]!.id });
-        }} title={tab.url || "新标签页"}><Icon name="globe" size={14} /><span>{tab.title}</span></button>
+        }} title={`${tab.title}${tab.environmentName ? ` · ${tab.environmentName}` : ""}`}><span className="inspector-browser-env-dot" style={{ backgroundColor: tab.environmentColor ?? "#aeb5c2" }} /><Icon name="globe" size={14} /><span>{tab.title}</span></button>
         <button type="button" aria-label={`关闭 ${tab.title}`} title="关闭标签页" disabled={busy} onClick={() => void perform({ type: "close", tabId: tab.id })}><Icon name="close" size={14} /></button>
       </div>)}
-    </div><button className="inspector-browser-new-tab" type="button" aria-label="新建网页标签" title="新建标签页" disabled={busy} onClick={() => void perform({ type: "new" })}><Icon name="add" size={18} /></button></div>
+    </div><button className="inspector-browser-new-tab" type="button" aria-label="新建网页标签" title="新建标签页" disabled={busy} onClick={() => void perform({ type: "new" })}><Icon name="add" size={18} /></button>
+      <BrowserEnvironmentMenu current={selected?.environmentId ? { id: selected.environmentId, name: selected.environmentName ?? "默认", color: selected.environmentColor ?? "#aeb5c2" } : undefined} disabled={busy} onOpen={(environmentId) => void perform({ type: "new", environmentId })} onNotice={setServerNotice} />
+    </div>
     <form className="inspector-subtoolbar inspector-browser-navigation" onSubmit={(event) => { event.preventDefault(); navigate(); }}>
-      <button className="inspector-browser-preview-action" type="button" title={previewUnavailable && previewAvailability?.available === false ? previewAvailability.reason : "运行或停止项目预览"} disabled={serverBusy || previewUnavailable} onClick={() => void toggleServer()}><Icon name={serverId || staticUrl ? "stop" : "play"} size={16} />{serverBusy ? "处理中…" : serverStarting ? "停止启动" : previewRunning ? "停止预览" : "运行预览"}</button>
+      <button aria-busy={serverBusy} className="inspector-browser-preview-action" type="button" title={previewUnavailable && previewAvailability?.available === false ? previewAvailability.reason : "运行或停止项目预览"} disabled={serverBusy || previewUnavailable} onClick={() => void toggleServer()}><Icon name={serverId || staticUrl ? "stop" : "play"} size={16} />{serverStarting ? "停止启动" : previewRunning ? "停止预览" : "运行预览"}</button>
+      <button type="button" aria-label="重新检查预览入口" title="重新检查预览入口" disabled={availabilityChecking || serverBusy} onClick={() => void refreshAvailability()}><Icon name="refresh" size={16} /></button>
       <div className="inspector-browser-history" role="group" aria-label="网页导航">
         <button type="button" aria-label="后退" title="后退" disabled={busy || !selected?.canGoBack} onClick={() => selected && void perform({ type: "back", tabId: selected.id })}><Icon name="arrow-left" size={16} /></button>
         <button type="button" aria-label="前进" title="前进" disabled={busy || !selected?.canGoForward} onClick={() => selected && void perform({ type: "forward", tabId: selected.id })}><Icon name="arrow-right" size={16} /></button>
@@ -312,8 +359,8 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
         {profilePickerOpen ? <div className="inspector-profile-picker" role="dialog" aria-label="复用浏览器登录态">
           <strong>复用浏览器登录态</strong>
           <p>从本机浏览器配置导入 Cookie。macOS 首次可能请求钥匙串权限。</p>
-          {profilesLoading ? <small>正在查找浏览器配置…</small> : profiles.length ? profiles.map((profile) => <button type="button" key={profile.id} disabled={Boolean(importingProfileId)} onClick={() => void importProfile(profile.id)}>
-            <Icon name="person" size={18} /><span><strong>{profile.appName} · {profile.profileName}</strong>{profile.userName ? <small>{profile.userName}</small> : null}</span>{importingProfileId === profile.id ? <small>导入中…</small> : null}
+          {profilesLoading ? <small>正在查找浏览器配置…</small> : profiles.length ? profiles.map((profile) => <button aria-busy={importingProfileId === profile.id} type="button" key={profile.id} disabled={Boolean(importingProfileId)} onClick={() => void importProfile(profile.id)}>
+            <Icon name="person" size={18} /><span><strong>{profile.appName} · {profile.profileName}</strong>{profile.userName ? <small>{profile.userName}</small> : null}</span>
           </button>) : <small>未找到 Chrome、Edge、Brave 等浏览器配置。</small>}
           {profileError ? <div className="inspector-error" role="alert">{profileError}</div> : null}
         </div> : null}
@@ -322,8 +369,8 @@ export function WorkspaceBrowserPanel({ projectId, active, expanded, onToggleExp
       </div>
       <div className="inspector-browser-address">
         <Icon name="globe" size={15} />
-        <input ref={addressInput} aria-label="网页地址" placeholder="搜索或输入网址" autoComplete="off" spellCheck={false} value={address} onChange={(event) => setAddress(event.target.value)} onKeyDown={(event) => {
-          if (event.key === "Escape") { event.preventDefault(); setAddress(selected?.url ?? ""); setError(undefined); }
+        <input ref={addressInput} aria-label="网页地址" placeholder="搜索或输入网址" autoComplete="off" spellCheck={false} value={address} onChange={(event) => { addressEditRef.current.edited = true; setAddress(event.target.value); }} onKeyDown={(event) => {
+          if (event.key === "Escape") { event.preventDefault(); addressEditRef.current.edited = false; setAddress(selected?.url ?? ""); setError(undefined); }
         }} />
         <button type="submit" aria-label="前往" title="前往（Enter）" disabled={busy || !address.trim()}><Icon name="arrow-right" size={16} /></button>
       </div>

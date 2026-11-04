@@ -1,5 +1,15 @@
+import type { RemoteAccessInput, RemoteAccessStatus } from "../remote/access.js";
+import type { MaskRecord, MaskRecordSummary, MaskingOverview } from "../privacy/record.js";
+import type { MaskSegment } from "../privacy/engine.js";
+import type { ToolOptimizationOverview } from "../session/toolOptimizationOverview.js";
 import type { TaskInspection, TaskInspectionOptions } from "../runtime/TaskCommunication.js";
 import type { ApplicationImportSource, ApplicationImportSnapshot, ApplicationImportPreview, ApplicationImportHistory } from "../imports/types.js";
+
+export interface DesktopApplicationImportsChanged {
+  projects: Array<{ projectId: string; sessionIds: string[] }>;
+  settingsChanged: boolean;
+  mcpChanged: boolean;
+}
 /**
  * 桌面端 IPC 协议。
  *
@@ -10,9 +20,8 @@ import type { ApplicationImportSource, ApplicationImportSnapshot, ApplicationImp
  * 通道名统一用 `desktop:<领域>:<动作>` 的形式，便于排查。
  */
 import type { DesktopThreadBriefRequest, DesktopThreadBriefSnapshot } from "./threadBriefProtocol.js";
-import type { AppearancePreference, AppearanceSnapshot } from "../appearance/types.js";
-import type { DesktopCrystalRequest, DesktopCrystalSnapshot } from "./crystalProtocol.js";
 import type { planStatus } from "../extensions/plan.js";
+import type { PluginConfiguration, PluginSettings } from "../extensions/pluginSettings.js";
 import type { TodoItem } from "../session/todoStore.js";
 import type { AcpConfig } from "../config/schema.js";
 import type { AcpSessionInfo } from "../acp/client.js";
@@ -23,6 +32,7 @@ import type { ActivityRuntimeSnapshot } from "../activity/types.js";
 import type { ActivityPermissionStatus } from "../activity/httpServer.js";
 import type { ActivityReportResult } from "../activity/analyzer.js";
 import type { ActivitySearchResult, ActivitySessionDetail } from "../activity/store.js";
+import type { DesktopWorkspaceFileIndex } from "./projectFiles.js";
 import type { ModelCatalogEntry } from "../ai/types.js";
 import type { ChatParamsConfig, CompactionConfig, ModelApiBackend, ModelCompatibility, ModelLimits, ModelProfile, ModelProvider, ThinkingLevelMap, WebSearchConfig } from "../config/schema.js";
 import type { EmbeddingModelDescriptor } from "../llm/embedding/types.js";
@@ -48,8 +58,7 @@ import type { AgentHostEvent, AgentRuntimeUpdate, InteractiveRuntimeSnapshot } f
 import { slashCommandsForSurface, type SlashCommandDefinition } from "../runtime/commandRegistry.js";
 import type { SessionBranchPoint, SessionIsolation } from "../session/catalog.js";
 import type { SessionEvent } from "../session/recorder.js";
-import type { SessionRunStatus } from "../session/runLedger.js";
-import type { DesktopTemporalPage, DesktopTemporalQuery } from "./temporalMemoryService.js";
+import type { RuntimeRunStatus } from "../runtime/RuntimeAuthority.js";
 import type { LocalReferenceKind, LocalReferenceResult } from "../session/localReferences.js";
 import type { LocalReferenceLink } from "../session/referenceGraph.js";
 import type { DateReferenceDetail } from "../session/dateReferenceDetail.js";
@@ -86,7 +95,6 @@ export type DesktopActivitySessionDetail = Omit<ActivitySessionDetail, "events">
 
 export const desktopIpc = {
   activitySuggestions: "desktop:activity:suggestions",
-  crystalRequest: "desktop:crystal:request",
   bootstrap: "desktop:bootstrap",
   openProject: "desktop:project:open",
   createEmptyProject: "desktop:project:create-empty",
@@ -109,6 +117,9 @@ export const desktopIpc = {
   openProjectTerminal: "desktop:project:terminal",
   startDraft: "desktop:session:draft",
   readSessionTrace: "desktop:session:trace",
+  toolOptimizationStats: "desktop:tools:optimization-stats",
+  toolOptimizationDetail: "desktop:tools:optimization-detail",
+  rtkStatus: "desktop:tools:rtk-status",
   openSession: "desktop:session:open",
   retryRuntime: "desktop:runtime:retry",
   sessionHandoff: "desktop:session:handoff",
@@ -117,6 +128,7 @@ export const desktopIpc = {
   renameSession: "desktop:session:rename",
   pinSession: "desktop:session:pin",
   archiveSession: "desktop:session:archive",
+  setSessionFastMode: "desktop:session:fast-mode",
   markSessionRead: "desktop:session:mark-read",
   duplicateSession: "desktop:session:duplicate",
   confirmSessionDeletion: "desktop:sessions:confirm-delete",
@@ -130,6 +142,7 @@ export const desktopIpc = {
   setApplicationImportSync: "desktop:imports:sync:set",
   configureApplicationImportSync: "desktop:imports:sync:selection",
   syncApplicationImports: "desktop:imports:sync:run",
+  preparePrompt: "desktop:agent:prepare-prompt",
   sendPrompt: "desktop:agent:send",
   mutateQueuedMessage: "desktop:agent:queue:mutate",
   toolCatalog: "desktop:agent:tool-catalog",
@@ -159,10 +172,21 @@ export const desktopIpc = {
   browserInspect: "desktop:browser:inspect",
   browserCapture: "desktop:browser:capture",
   browserRelayStatus: "desktop:browser:relay-status",
+  remoteAccessStatus: "desktop:remote:status",
+  remoteAccessStart: "desktop:remote:start",
+  remoteAccessStop: "desktop:remote:stop",
+  remoteAccessRegenerate: "desktop:remote:regenerate",
+  remoteAccessChanged: "desktop:remote:changed",
   browserRelayInstall: "desktop:browser:relay-install",
   browserRelayOpenChrome: "desktop:browser:relay-open-chrome",
   browserRelaySetup: "desktop:browser:relay-setup",
   browserRelayDisconnect: "desktop:browser:relay-disconnect",
+  browserEnvironments: "desktop:browser:environments",
+  browserEnvironmentCreate: "desktop:browser:environment:create",
+  browserEnvironmentUpdate: "desktop:browser:environment:update",
+  browserEnvironmentDelete: "desktop:browser:environment:delete",
+  browserEnvironmentClear: "desktop:browser:environment:clear",
+  browserEnvironmentImportCookies: "desktop:browser:environment:import-cookies",
   browserAction: "desktop:browser:action",
   browserBounds: "desktop:browser:bounds",
   browserState: "desktop:browser:state",
@@ -182,10 +206,6 @@ export const desktopIpc = {
   memoryOverview: "desktop:memory:overview",
   memoryStats: "desktop:memory:stats",
   memoryEntries: "desktop:memory:entries",
-  temporalClues: "desktop:memory:temporal-clues",
-  temporalIgnoreClue: "desktop:memory:temporal-ignore",
-  temporalMarkSeen: "desktop:memory:temporal-seen",
-  temporalMarkTodaySeen: "desktop:memory:temporal-today-seen",
   referenceKinds: "desktop:references:kinds",
   referenceSearch: "desktop:references:search",
   referenceResolve: "desktop:references:resolve",
@@ -210,7 +230,9 @@ export const desktopIpc = {
   settingsCloseRequest: "desktop:settings:close-request",
   settingsCloseResponse: "desktop:settings:close-response",
   activitySnapshot: "desktop:activity:snapshot",
-  activityRetryFailedAnalysis: "desktop:activity:retry-failed-analysis",
+  maskingOverview: "desktop:masking:overview",
+  maskingDetail: "desktop:masking:detail",
+  maskingClear: "desktop:masking:clear",
   activityPermissions: "desktop:activity:permissions",
   activitySettings: "desktop:activity:settings",
   activityApplications: "desktop:activity:applications",
@@ -246,6 +268,7 @@ export const desktopIpc = {
   saveAttachment: "desktop:attachment:save",
   resolveDroppedFile: "desktop:attachment:resolve-path",
   listWorkspaceDirectory: "desktop:file:list-directory",
+  workspaceFileIndex: "desktop:file:index",
   readWorkspaceFile: "desktop:file:read",
   htmlPreviewUrl: "desktop:file:html-preview-url",
   getWorkspaceMediaUrl: "desktop:file:media-url",
@@ -257,10 +280,8 @@ export const desktopIpc = {
   setFilePanelWidth: "desktop:ui:file-panel-width",
   setThemePreference: "desktop:ui:theme",
   setFontPreference: "desktop:ui:font",
-  setAppearancePreference: "desktop:ui:appearance",
   previewAppearance: "desktop:ui:appearance-preview",
   appearanceChanged: "desktop:ui:appearance-changed",
-  windowAction: "desktop:window:action",
   quickChatToggle: "desktop:quickchat:toggle",
   quickChatHide: "desktop:quickchat:hide",
   quickChatClose: "desktop:quickchat:close",
@@ -286,26 +307,19 @@ export const desktopIpc = {
   recipeSuggestions: "desktop:recipe:suggestions",
   recipeState: "desktop:recipe:state",
   skillCatalog: "desktop:skill:catalog",
-  skillSourceImport: "desktop:skill:source-import",
-  skillSourceInstall: "desktop:skill:source-install",
   skillImportExisting: "desktop:skill:import-existing",
-  skillDiscoverySnapshot: "desktop:skill:discovery",
-  skillDiscoverySearch: "desktop:skill:discovery-search",
-  skillDiscoveryInstall: "desktop:skill:discovery-install",
-  skillRepositoryAdd: "desktop:skill:repository-add",
-  skillRepositoryRemove: "desktop:skill:repository-remove",
   skillFileRead: "desktop:skill:file-read",
-  skillCheck: "desktop:skill:check",
   skillVersion: "desktop:skill:version",
   skillVersionUpdate: "desktop:skill:version-update",
   skillVersionRollback: "desktop:skill:version-rollback",
-  skillFileWrite: "desktop:skill:file-write",
   skillOpenDirectory: "desktop:skill:open-directory",
   skillSettings: "desktop:skill:settings",
   pluginRegistry: "desktop:plugin:registry",
+  pluginCatalog: "desktop:plugin:catalog",
   pluginRegistryRefresh: "desktop:plugin:registry-refresh",
   pluginInstall: "desktop:plugin:install",
   pluginSetEnabled: "desktop:plugin:set-enabled",
+  pluginSetSettings: "desktop:plugin:set-settings",
   pluginUninstall: "desktop:plugin:uninstall",
   pluginOpenDirectory: "desktop:plugin:open-directory",
   mcpSnapshot: "desktop:mcp:snapshot",
@@ -324,10 +338,12 @@ export const desktopIpc = {
 } as const;
 
 export type DesktopThemePreference = "system" | "light" | "dark";
-export type DesktopAppearancePreference = AppearancePreference;
-export type DesktopAppearanceSnapshot = AppearanceSnapshot;
+export interface DesktopAppearanceSnapshot {
+  themePreference: DesktopThemePreference;
+  fontPreference: DesktopFontPreference;
+}
 export type DesktopSystemSettingsPane = "screen-recording" | "accessibility";
-export type DesktopActiveView = "chat" | "runtime" | "extensions";
+export type DesktopActiveView = "chat" | "runtime";
 
 /** 界面字体偏好。`family` 为 CSS 字体族名，"system" 表示跟随操作系统；`size` 为基准字号（px）。 */
 export interface DesktopFontPreference {
@@ -401,6 +417,7 @@ export interface DesktopProject {
   id: string;
   path: string;
   name: string;
+  iconDataUrl?: string;
   branch?: string;
   dirty: boolean;
   missing: boolean;
@@ -414,6 +431,9 @@ export interface DesktopBrowserTab {
   id: string;
   title: string;
   url: string;
+  environmentId?: string;
+  environmentName?: string;
+  environmentColor?: string;
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
@@ -429,9 +449,19 @@ export interface DesktopBrowserSnapshot {
   activeId?: string;
   tabs: DesktopBrowserTab[];
 }
+export interface DesktopBrowserEnvironment {
+  id: string;
+  name: string;
+  color: string;
+  proxy: { mode: "system" | "direct" | "fixed_servers"; proxyRules?: string; proxyBypassRules?: string };
+}
+export interface DesktopBrowserEnvironmentInput {
+  name: string;
+  proxy: { mode: "system" | "direct" | "fixed_servers"; proxyRules?: string; proxyBypassRules?: string };
+}
 export interface DesktopBrowserBounds { x: number; y: number; width: number; height: number }
 export type DesktopBrowserAction =
-  | { type: "new"; url?: string }
+  | { type: "new"; url?: string; environmentId?: string }
   | { type: "navigate"; tabId: string; url: string }
   | { type: "close" | "select" | "back" | "forward" | "reload" | "stop" | "float"; tabId: string };
 
@@ -475,14 +505,28 @@ export interface DesktopSessionSummary {
   isolation?: SessionIsolation;
   metadataRevision?: string;
   personalization?: DesktopChatPersonalizationOverride;
+  fastMode?: boolean;
   hasChildren?: boolean;
   /** 最近一次运行来自 run ledger；live runtime 仍优先于这个历史投影。 */
   latestRun?: DesktopSessionRunSummary;
 }
 
+export interface DesktopSessionMetadataReceipt {
+  projectId: string;
+  sessionId: string;
+  metadata: Pick<DesktopSessionSummary, "updatedAt"> & {
+    metadataRevision: string;
+  } & Partial<Pick<DesktopSessionSummary, "title" | "pinned" | "archived" | "unread" | "fastMode" | "personalization">>;
+}
+
+export interface DesktopPermissionReceipt {
+  projectId: string;
+  permissionMode: PermissionMode;
+}
+
 export interface DesktopSessionRunSummary {
   runId: string;
-  status: SessionRunStatus;
+  status: RuntimeRunStatus;
   startedAt: string;
   updatedAt: string;
   endedAt?: string;
@@ -552,6 +596,8 @@ export interface DesktopSessionTreePageOptions {
   limit?: number;
   includeArchived?: boolean;
   includePinnedSessions?: boolean;
+  /** 同一 catalog 中需要核对的已加载会话；补充结果不参与页面游标。 */
+  sessionIds?: string[];
 }
 
 export interface DesktopSessionTreePage {
@@ -561,6 +607,7 @@ export interface DesktopSessionTreePage {
   sessions: DesktopSessionSummary[];
   /** 子页首屏携带同一 catalog 快照中的置顶摘要，供游标重置后恢复独立置顶入口。 */
   pinnedSessions?: DesktopSessionSummary[];
+  supplementalSessions?: DesktopSessionSummary[];
   nextCursor?: string;
   revisionChanged?: boolean;
 }
@@ -601,6 +648,7 @@ export interface DesktopToolCatalogEntry {
   source: "builtin" | "mcp" | "skill" | "plugin" | "subagent";
   risk?: "read" | "write" | "execute";
   namespace?: { name: string };
+  exposure?: import("../tools/types.js").ToolExposure;
 }
 
 /** Agent 权限策略的脱敏设置视图；工具选择器不读写这里的 allowTools。 */
@@ -628,7 +676,6 @@ export interface DesktopBootstrap {
   filePanelWidth: number;
   themePreference: DesktopThemePreference;
   fontPreference: DesktopFontPreference;
-  appearancePreference?: DesktopAppearancePreference;
 }
 
 /** 发送提示或排队运行中消息后的回执。 */
@@ -685,13 +732,6 @@ export interface DesktopSkillDiagnostic {
   shadowedBy?: string;
 }
 
-export interface DesktopManagedSkillSource {
-  id: string;
-  name: string;
-  description: string;
-  installed: boolean;
-}
-
 export interface DesktopSkillImportCandidate {
   id: string;
   name: string;
@@ -705,49 +745,6 @@ export interface DesktopSkillImportResult {
   name: string;
   installedPath: string;
   alreadyInstalled: boolean;
-}
-
-export interface DesktopSkillRepository {
-  owner: string;
-  name: string;
-  branch: string;
-  enabled: boolean;
-}
-
-export interface DesktopDiscoverableSkill {
-  key: string;
-  name: string;
-  description: string;
-  directory: string;
-  readmeUrl?: string;
-  repoOwner: string;
-  repoName: string;
-  repoBranch: string;
-  installed: boolean;
-}
-
-export interface DesktopSkillsShDiscoverableSkill {
-  key: string;
-  name: string;
-  directory: string;
-  repoOwner: string;
-  repoName: string;
-  repoBranch: string;
-  installs: number;
-  readmeUrl?: string;
-  installed: boolean;
-}
-
-export interface DesktopSkillsShSearchResult {
-  skills: DesktopSkillsShDiscoverableSkill[];
-  totalCount: number;
-  query: string;
-}
-
-export interface DesktopSkillDiscoverySnapshot {
-  repositories: DesktopSkillRepository[];
-  skills: DesktopDiscoverableSkill[];
-  warnings: string[];
 }
 
 export interface DesktopSkillFile {
@@ -826,6 +823,16 @@ export interface DesktopPluginSummary {
   description?: string;
   enabled?: boolean;
   managed?: boolean;
+  /** 受管清单里的插件 id；仅受管 Plugin 有值，用于启停、卸载与设置 IPC。 */
+  pluginId?: string;
+  entry?: string;
+  source?: { repository: string; path: string; branch: string };
+  installedAt?: string;
+  author?: string;
+  homepage?: string;
+  configuration?: PluginConfiguration;
+  /** 清单里已存的设置值，不包含声明默认值。 */
+  settings?: PluginSettings;
   error?: string;
 }
 
@@ -860,10 +867,11 @@ export interface DesktopSkillCatalogSnapshot {
   inventory: DesktopSkillCatalogEntry[];
   unmanagedSkills: DesktopSkillImportCandidate[];
   plugins: DesktopPluginSummary[];
-  managedSources: DesktopManagedSkillSource[];
   warnings: string[];
   diagnostics: DesktopSkillDiagnostic[];
 }
+
+export type DesktopPluginCatalogSnapshot = Pick<DesktopSkillCatalogSnapshot, "plugins" | "warnings">;
 
 export type DesktopMcpTransport = "stdio" | "remote";
 export type DesktopMcpRemoteProtocol = "streamable-http" | "sse";
@@ -989,6 +997,7 @@ export interface DesktopMcpSnapshot {
   configRevision: string;
   servers: DesktopMcpServerSummary[];
   catalog: DesktopMcpCatalogState;
+  saved?: { runtimeRefresh: "not_needed" | "completed" | "failed"; message?: string };
 }
 
 export interface DesktopSkillFilePreview {
@@ -1055,6 +1064,7 @@ export interface DesktopModelConnection {
   providerAlias: string;
   providerType: ModelProvider;
   enabled?: boolean;
+  supportsEmbedding?: boolean;
   /** 自定义服务商的用户命名；内置目录服务商缺省，列表标签回退到端点主机名。 */
   displayName?: string;
   /** 用户为该服务商挑的品牌图标 id；没覆盖过则缺省，渲染层按目录回退。 */
@@ -1110,6 +1120,18 @@ export interface DesktopWebSearchSettings {
 }
 
 export type DesktopWebSearchSettingsInput = DesktopWebSearchSettings;
+
+/** 出站脱敏设置。只有一个开关；具体值不在快照里。 */
+export interface DesktopRedactionSettings {
+  enabled: boolean;
+}
+
+export type DesktopRedactionSettingsInput = DesktopRedactionSettings;
+
+export type DesktopMaskSegment = MaskSegment;
+export type DesktopMaskRecord = MaskRecord;
+export type DesktopMaskRecordSummary = MaskRecordSummary;
+export type DesktopMaskingOverview = MaskingOverview;
 
 export type DesktopSettingsCredentialPurpose = "model";
 
@@ -1245,7 +1267,7 @@ export interface DesktopMemoryStats {
   maintenance: MemoryMaintenanceStatus;
 }
 
-/** 归档恢复的额外提示来自恢复前仍存活的合并目标。 */
+/** 归档恢复的额外提示来自恢复前仍存活的合并目标或更新后的当前事实。 */
 export interface DesktopMemoryArchiveMutationResult extends DesktopMemoryStats {
   mergedTarget: { id: string; content: string } | null;
 }
@@ -1326,15 +1348,25 @@ export interface DesktopMemorySettingsInput {
   settings: DesktopMemorySettings;
 }
 
+export interface DesktopSubagentSettings {
+  enabled: boolean;
+  runtime: "auto" | "builtin" | "codex" | "claude-code" | "acp";
+  providerAlias?: string;
+  model?: string;
+}
+
 export interface DesktopSettingsModelsSnapshot {
   configured: ModelChoice[];
   connections: DesktopModelConnection[];
+  selectedModel?: ModelRuntimeInfo;
   /** 已验证的本地目录缓存；设置页首屏直接使用，不因打开详情自动访问服务商网络。 */
   catalogs?: Record<string, ModelCatalogEntry[]>;
   /** 脱敏的独立 embedding 目录；不含 provider headers 或凭据。 */
   embeddingModels: DesktopEmbeddingModelDescriptor[];
   defaultModel: string;
   toolModel?: string;
+  visionModel?: string;
+  visionModelEnabled?: boolean;
   resolvedToolModel?: string;
   thinking: ThinkingSelection;
   /** provider alias -> 原始模型 ID -> 用户声明的元数据覆盖。 */
@@ -1378,15 +1410,18 @@ export interface DesktopSettingsSnapshot {
   configRevision: string;
   themePreference: DesktopThemePreference;
   fontPreference: DesktopFontPreference;
-  appearancePreference?: DesktopAppearancePreference;
   activity: ActivitySettings;
   identity: DesktopIdentitySettings;
   memory: DesktopMemorySettings;
   compaction: DesktopCompactionSettings;
   chatParams: DesktopChatParamsSettings;
+  rtkEnabled?: boolean;
   toolExecutionMode: "direct" | "code_mode";
+  subagent: DesktopSubagentSettings;
+  externalSubagentBlockers: string[];
   permission: DesktopPermissionSettings;
   webSearch: DesktopWebSearchSettings;
+  redaction: DesktopRedactionSettings;
   models: DesktopSettingsModelsSnapshot;
   skills: DesktopSkillSettings;
   chat?: DesktopSettingsChatSnapshot;
@@ -1408,6 +1443,8 @@ export interface DesktopSettingsModelsInput {
   removeAliases: string[];
   /** 省略表示不修改，空对象表示恢复自动选择。 */
   toolModel?: { alias?: string };
+  visionModel?: { alias?: string };
+  visionModelEnabled?: boolean;
   defaultModel?: {
     alias: string;
     thinking: ThinkingSelection;
@@ -1445,16 +1482,18 @@ export interface DesktopSettingsSaveInput {
   expectedConfigRevision: string;
   themePreference?: DesktopThemePreference;
   fontPreference?: DesktopFontPreference;
-  appearancePreference?: DesktopAppearancePreference;
   /** 外发策略不属于 renderer 可写入的输入；主进程会保留当前策略并仅更新采集参数。 */
   activity?: ActivitySettingsInput;
   identity?: DesktopIdentitySettings;
   memory?: DesktopMemorySettings;
   compaction?: DesktopCompactionSettings;
   chatParams?: DesktopChatParamsSettings;
+  rtkEnabled?: boolean;
   toolExecutionMode?: "direct" | "code_mode";
+  subagent?: DesktopSubagentSettings;
   permission?: DesktopPermissionSettings;
   webSearch?: DesktopWebSearchSettingsInput;
+  redaction?: DesktopRedactionSettingsInput;
   models?: DesktopSettingsModelsInput;
   skills?: DesktopSkillSettingsInput;
   chat?: DesktopSettingsChatInput;
@@ -1473,12 +1512,56 @@ export interface DesktopSettingsConflict {
   actualRevision: string;
 }
 
+export interface DesktopSettingsModelSelectionReceipt {
+  projectId: string;
+  hasRunningTasks: boolean;
+  preferenceRevision: number;
+  configRevision: string;
+  models: Pick<DesktopSettingsModelsSnapshot, "toolModel" | "visionModel" | "visionModelEnabled" | "resolvedToolModel">;
+}
+
+export type DesktopSettingsPreferencesReceipt = Pick<DesktopSettingsSnapshot,
+  "projectId" | "hasRunningTasks" | "preferenceRevision" | "themePreference" | "fontPreference" | "pendingRecovery">;
+
+/** 非模型配置回执保留真实版本，不重新投影无关的 Provider 目录。 */
+export type DesktopSettingsNonModelReceipt = Omit<DesktopSettingsSnapshot, "models">;
+
 export type DesktopSettingsSaveResult =
   | {
       status: "committed";
       journalId: string;
       appliedFields: string[];
       snapshot: DesktopSettingsSnapshot;
+      modelSelection?: undefined;
+      preferences?: undefined;
+      settings?: undefined;
+    }
+  | {
+      status: "committed";
+      journalId: string;
+      appliedFields: string[];
+      snapshot?: undefined;
+      modelSelection: DesktopSettingsModelSelectionReceipt;
+      preferences?: undefined;
+      settings?: undefined;
+    }
+  | {
+      status: "committed";
+      journalId: string;
+      appliedFields: string[];
+      snapshot?: undefined;
+      modelSelection?: undefined;
+      preferences: DesktopSettingsPreferencesReceipt;
+      settings?: undefined;
+    }
+  | {
+      status: "committed";
+      journalId: string;
+      appliedFields: string[];
+      snapshot?: undefined;
+      modelSelection?: undefined;
+      preferences?: undefined;
+      settings: DesktopSettingsNonModelReceipt;
     }
   | {
       status: "rolled_back";
@@ -1487,12 +1570,36 @@ export type DesktopSettingsSaveResult =
       message?: string;
       draftRetained: true;
       snapshot: DesktopSettingsSnapshot;
+      preferences?: undefined;
+      settings?: undefined;
+    }
+  | {
+      status: "rolled_back";
+      journalId?: string;
+      conflicts?: DesktopSettingsConflict[];
+      message?: string;
+      draftRetained: true;
+      snapshot?: undefined;
+      preferences: DesktopSettingsPreferencesReceipt;
+      settings?: undefined;
+    }
+  | {
+      status: "rolled_back";
+      journalId?: string;
+      conflicts?: DesktopSettingsConflict[];
+      message?: string;
+      draftRetained: true;
+      snapshot?: undefined;
+      preferences?: undefined;
+      settings: DesktopSettingsNonModelReceipt;
     }
   | {
       status: "recovery_required";
       journalId: string;
       message: string;
       snapshot?: DesktopSettingsSnapshot;
+      preferences?: DesktopSettingsPreferencesReceipt;
+      settings?: DesktopSettingsNonModelReceipt;
     };
 
 export interface DesktopMemoryEntryInput {
@@ -1539,7 +1646,7 @@ export interface DesktopRuntimeProjection {
 export interface DesktopPlanProjection {
   sessionId: string;
   plans: Array<ReturnType<typeof planStatus>>;
-  /** 普通多步任务的当前会话清单；由 TodoWrite 更新并在工具完成后刷新。 */
+  /** 普通多步任务的当前会话清单；由待办 CLI 更新并在工具完成后刷新。 */
   todos?: TodoItem[];
   goal?: SessionGoalRecord;
 }
@@ -1574,8 +1681,6 @@ export type DesktopRuntimeMutation =
   | "automation.resume"
   | "automation.run"
   | "automation.delete"
-  | "graph.create"
-  | "graph.start"
   | "graph.pause"
   | "graph.resume"
   | "graph.cancel"
@@ -1594,7 +1699,7 @@ export type DesktopRuntimeMutation =
   | "worktree.merge"
   | "worktree.remove";
 
-export type DesktopMenuAction = "new-task" | "open-project" | "search" | "settings" | "activity-settings" | "toggle-sidebar" | "focus-composer";
+export type DesktopMenuAction = "capture-window" | "new-task" | "open-project" | "search" | "settings" | "activity-settings" | "toggle-sidebar" | "focus-composer";
 /** 侧栏会话右键菜单的动作；菜单本身由渲染进程绘制。 */
 export interface DesktopSessionTarget {
   projectId: string;
@@ -1637,28 +1742,40 @@ export type DesktopTerminalEvent =
 /**
  * 渲染进程可用的全部主进程能力，运行时挂在 `window.biny` 上。
  *
- * 大部分方法返回更新后的 `DesktopWorkspaceSnapshot`，渲染层直接整体替换状态即可，
- * 不需要自己推算改动结果。`on*` 系列返回取消订阅函数。
+ * 首屏和显式刷新返回 `DesktopWorkspaceSnapshot`；局部写入返回所属字段的权威回执，
+ * 渲染层按项目/会话身份合并。`on*` 系列返回取消订阅函数。
  */
+export interface DesktopToolOptimizationStats extends ToolOptimizationOverview {
+  incompleteSessions: number;
+  stale?: boolean;
+}
+
 export interface DesktopApi {
+  remoteAccessStatus(): Promise<RemoteAccessStatus>;
+  remoteAccessStart(input: RemoteAccessInput): Promise<RemoteAccessStatus>;
+  remoteAccessStop(): Promise<RemoteAccessStatus>;
+  remoteAccessRegenerate(): Promise<RemoteAccessStatus>;
+  onRemoteAccessChanged(listener: () => void): () => void;
+  rtkStatus(): Promise<{ path?: string; version?: string; reason?: string }>;
+  toolOptimizationDetail(projectId: string, sessionId: string, toolCallId: string): Promise<{ events: SessionEvent[] }>;
+  toolOptimizationStats(days: 1 | 7 | 30 | "all", projectId?: string, sessionId?: string, refresh?: boolean): Promise<DesktopToolOptimizationStats>;
   applicationImports(): Promise<ApplicationImportSnapshot>;
-  onApplicationImportsChanged(listener: () => void): () => void;
+  onApplicationImportsChanged(listener: (changes: DesktopApplicationImportsChanged) => void): () => void;
   previewApplicationImport(source: ApplicationImportSource): Promise<ApplicationImportPreview | undefined>;
   runApplicationImport(input: { previewId: string; itemIds: string[]; projectId: string }): Promise<ApplicationImportHistory>;
   setApplicationImportSync(enabled: boolean): Promise<ApplicationImportSnapshot>;
   configureApplicationImportSync(input: { previewId: string; itemIds: string[]; projectId: string }): Promise<ApplicationImportSnapshot>;
   syncApplicationImports(): Promise<ApplicationImportSnapshot>;
   activitySuggestions(): Promise<string[]>;
-  crystalRequest(request: DesktopCrystalRequest): Promise<DesktopCrystalSnapshot>;
   bootstrap(): Promise<DesktopBootstrap>;
   openProject(): Promise<DesktopWorkspaceSnapshot | undefined>;
-  createEmptyProject(): Promise<DesktopWorkspaceSnapshot | undefined>;
+  createEmptyProject(siteUrl?: string): Promise<DesktopWorkspaceSnapshot | undefined>;
   selectProject(projectId: string): Promise<DesktopWorkspaceSnapshot>;
   commitSelection(projectId: string, sessionId: string | undefined, activeView: DesktopActiveView): Promise<void>;
   setActiveView(activeView: DesktopActiveView): Promise<void>;
-  setProjectPinned(projectId: string, pinned: boolean): Promise<DesktopWorkspaceSnapshot>;
+  setProjectPinned(projectId: string, pinned: boolean): Promise<DesktopProject>;
   reorderProjects(projectIds: string[]): Promise<DesktopProject[]>;
-  renameProject(projectId: string, name: string): Promise<DesktopWorkspaceSnapshot>;
+  renameProject(projectId: string, name: string): Promise<DesktopProject>;
   removeProject(projectId: string): Promise<DesktopBootstrap>;
   refreshProject(projectId: string): Promise<DesktopWorkspaceSnapshot>;
   projectGitStatus(projectId: string): Promise<DesktopGitStatus>;
@@ -1670,21 +1787,23 @@ export interface DesktopApi {
   createProjectBranch(projectId: string, branchName: string): Promise<DesktopWorkspaceSnapshot>;
   revealProject(projectId: string): Promise<void>;
   openProjectTerminal(projectId: string): Promise<void>;
-  startDraft(projectId: string): Promise<DesktopWorkspaceSnapshot>;
+  startDraft(projectId: string, isolation?: "shared" | "worktree"): Promise<DesktopWorkspaceSnapshot>;
   readSessionTrace(projectId: string, sessionId: string): Promise<SessionEvent[]>;
   openSession(projectId: string, sessionId: string): Promise<DesktopSessionDocument>;
   retryRuntime(projectId: string, sessionId?: string): Promise<DesktopRuntimeRetryResult>;
   listSessionTreePage(projectId: string, options?: DesktopSessionTreePageOptions): Promise<DesktopSessionTreePage>;
-  renameSession(projectId: string, sessionId: string, title: string, expectedRevision?: string): Promise<DesktopWorkspaceSnapshot>;
-  pinSession(projectId: string, sessionId: string, pinned: boolean, expectedRevision?: string): Promise<DesktopWorkspaceSnapshot>;
-  archiveSession(projectId: string, sessionId: string, archived: boolean, expectedRevision?: string): Promise<DesktopWorkspaceSnapshot>;
-  markSessionRead(projectId: string, sessionId: string, expectedRevision?: string): Promise<DesktopWorkspaceSnapshot>;
+  renameSession(projectId: string, sessionId: string, title: string, expectedRevision?: string): Promise<DesktopSessionMetadataReceipt>;
+  pinSession(projectId: string, sessionId: string, pinned: boolean, expectedRevision?: string): Promise<DesktopSessionMetadataReceipt>;
+  archiveSession(projectId: string, sessionId: string, archived: boolean, expectedRevision?: string): Promise<DesktopSessionMetadataReceipt>;
+  setSessionFastMode(projectId: string, sessionId: string, fastMode: boolean, expectedRevision?: string): Promise<DesktopSessionMetadataReceipt>;
+  markSessionRead(projectId: string, sessionId: string, expectedRevision?: string): Promise<DesktopSessionMetadataReceipt>;
   duplicateSession(projectId: string, sessionId: string): Promise<DesktopWorkspaceSnapshot>;
   deleteSessions(targets: DesktopSessionTarget[], confirm?: boolean, onStarted?: () => void): Promise<DesktopSessionDeleteResult>;
   /** 导出为 Biny bundle（无损 JSON）或外部 JSONL；用户在保存对话框里选位置。 */
-  exportSession(projectId: string, sessionId: string, format: "biny" | "claude"): Promise<DesktopWorkspaceSnapshot>;
+  exportSession(projectId: string, sessionId: string, format: "biny" | "claude"): Promise<void>;
   /** 从 Biny bundle 或外部 rollout 文件导入一条新会话并选中它。 */
-  importSession(projectId: string): Promise<DesktopWorkspaceSnapshot>;
+  importSession(projectId: string): Promise<DesktopWorkspaceSnapshot | undefined>;
+  preparePrompt(projectId: string): Promise<void>;
   sendPrompt(
     projectId: string,
     sessionId: string | undefined,
@@ -1694,7 +1813,8 @@ export interface DesktopApi {
     personalization?: DesktopChatPersonalizationOverride,
     idempotencyKey?: string,
     promptContext?: string,
-    capabilitySelection?: AgentCapabilitySelection
+    capabilitySelection?: AgentCapabilitySelection,
+    fastMode?: boolean
   ): Promise<DesktopRunReceipt>;
   mutateQueuedMessage(
     projectId: string,
@@ -1712,7 +1832,7 @@ export interface DesktopApi {
   runInspectorCommand(projectId: string, owner: string, kind: "review" | "side-chat", input: string, history: import("./inspectorTask.js").InspectorMessage[]): Promise<DesktopSlashResult>;
   resolvePermission(projectId: string, requestId: string, result: PermissionResult): Promise<void>;
   answerUserInput(projectId: string, sessionId: string, runId: string, toolCallId: string, response: UserInputResponse): Promise<void>;
-  setPermissionMode(projectId: string, mode: PermissionMode): Promise<DesktopWorkspaceSnapshot>;
+  setPermissionMode(projectId: string, mode: PermissionMode): Promise<DesktopPermissionReceipt>;
   switchModel(projectId: string, alias: string, thinking: ThinkingSelection): Promise<ModelRuntimeInfo>;
   testModelConfiguration(projectId: string, configuration: DesktopModelConfigurationInput): Promise<DesktopModelConnectionTestResult>;
   readModelApiKey(projectId: string, providerAlias: string): Promise<string | undefined>;
@@ -1732,6 +1852,12 @@ export interface DesktopApi {
   projectPreviewStatus(projectId: string): Promise<{ kind: "starting"; terminalId: string } | { kind: "script"; terminalId: string; url: string } | { kind: "static"; url: string } | { kind: "failed"; error: string } | { kind: "stopped" }>;
   stopProjectPreview(projectId: string): Promise<void>;
   browserSnapshot(projectId: string): Promise<DesktopBrowserSnapshot>;
+  browserEnvironments(): Promise<DesktopBrowserEnvironment[]>;
+  createBrowserEnvironment(input: DesktopBrowserEnvironmentInput): Promise<DesktopBrowserEnvironment>;
+  updateBrowserEnvironment(id: string, input: DesktopBrowserEnvironmentInput): Promise<DesktopBrowserEnvironment>;
+  deleteBrowserEnvironment(id: string): Promise<void>;
+  clearBrowserEnvironment(id: string): Promise<void>;
+  importBrowserEnvironmentCookies(sourceId: string, targetId: string): Promise<{ imported: number }>;
   browserInspect(projectId: string, tabId: string, enabled: boolean): Promise<DesktopBrowserSnapshot>;
   browserCapture(projectId: string, tabId: string, selection?: boolean): Promise<LocalReferenceResult>;
   browserRelayStatus(): Promise<{ running: boolean; connected: boolean; browsers: Array<{ browserId: string; browserName: string }> }>;
@@ -1750,16 +1876,12 @@ export interface DesktopApi {
   importBrowserProfile(profileId: string): Promise<{ imported: number; failed: number; appName: string }>;
   clearCookies(): Promise<DesktopCookieJarStatus>;
   personalizationOverview(projectId: string, sessionId?: string): Promise<DesktopPersonalizationOverview>;
-  saveChatPersonalization(projectId: string, sessionId: string, input: DesktopChatPersonalizationOverride, expectedRevision: string): Promise<DesktopWorkspaceSnapshot>;
+  saveChatPersonalization(projectId: string, sessionId: string, input: DesktopChatPersonalizationOverride, expectedRevision: string): Promise<DesktopSessionMetadataReceipt>;
   memoryOverview(projectId: string): Promise<DesktopMemoryOverview>;
   /** 记忆库统计（不含条目内容）；条目增删后用于刷新头部与翻页控件。 */
   memoryStats(projectId: string): Promise<DesktopMemoryStats>;
   /** 记忆条目分页读取；offset 分页，revision 变化时调用方应回第 0 页。 */
   memoryEntries(projectId: string, offset: number, limit: number, includeArchived?: boolean): Promise<DesktopMemoryEntriesPage>;
-  temporalClues(query: DesktopTemporalQuery): Promise<DesktopTemporalPage>;
-  temporalIgnoreClue(id: string): Promise<boolean>;
-  temporalMarkSeen(ids: string[], day: string, timeZone: string): Promise<number>;
-  temporalMarkTodaySeen(day: string, timeZone: string): Promise<number>;
   referenceKinds(): Promise<Array<{ kind: LocalReferenceKind; label: string }>>;
   referenceSearch(projectId: string, query: string, kind?: LocalReferenceKind, timeZone?: string): Promise<LocalReferenceResult[]>;
   referenceResolve(projectId: string, uri: string): Promise<LocalReferenceResult>;
@@ -1777,8 +1899,11 @@ export interface DesktopApi {
   saveIdentityDocument(projectId: string, document: DesktopIdentityDocumentKind, content: string, expectedRevision: number, reason?: string): Promise<DesktopIdentityOverview>;
   settingsSnapshot(projectId: string, sessionId?: string): Promise<DesktopSettingsSnapshot>;
   saveSettings(projectId: string, input: DesktopSettingsSaveInput): Promise<DesktopSettingsSaveResult>;
-  activitySnapshot(): Promise<ActivityRuntimeSnapshot>;
-  retryFailedActivityAnalysis(): Promise<{ queued: number; snapshot: ActivityRuntimeSnapshot }>;
+  activitySnapshot(forceRefresh?: boolean): Promise<ActivityRuntimeSnapshot>;
+  /** 最近的脱敏摘要；原文对照通过详情接口按需读取。 */
+  maskingOverview(projectId: string): Promise<DesktopMaskingOverview>;
+  maskingDetail(projectId: string, id: string): Promise<DesktopMaskRecord | undefined>;
+  maskingClear(projectId: string): Promise<void>;
   activityPermissions(): Promise<ActivityPermissionStatus>;
   activitySettings(): Promise<DesktopActivitySettingsUpdate>;
   activityApplications(): Promise<DesktopActivityApplication[]>;
@@ -1819,6 +1944,7 @@ export interface DesktopApi {
   cancelMemoryEmbeddingRebuild(projectId: string): Promise<DesktopMemoryEmbeddingCancellationResult>;  saveAttachment(projectId: string, name: string, mimeType: string, bytes: Uint8Array): Promise<DesktopAttachment>;
   resolveDroppedFile(file: File): string;
   listWorkspaceDirectory(projectId: string, relativePath: string): Promise<DesktopWorkspaceDirectory>;
+  workspaceFileIndex(projectId: string): Promise<DesktopWorkspaceFileIndex>;
   readWorkspaceFile(projectId: string, relativePath: string): Promise<DesktopWorkspaceFilePreview>;
   htmlPreviewUrl(projectId: string, relativePath: string): Promise<{ url: string }>;
   getWorkspaceMediaUrl(projectId: string, relativePath: string): Promise<{ url: string; mimeType: string }>;
@@ -1831,10 +1957,8 @@ export interface DesktopApi {
   setFilePanelWidth(width: number): Promise<void>;
   setThemePreference(theme: DesktopThemePreference): Promise<DesktopThemePreference>;
   setFontPreference(font: DesktopFontPreference): Promise<DesktopFontPreference>;
-  setAppearancePreference(preference: DesktopAppearancePreference): Promise<DesktopAppearancePreference>;
   previewAppearance(snapshot: DesktopAppearanceSnapshot | null): Promise<void>;
   onAppearanceChanged(callback: (snapshot: DesktopAppearanceSnapshot) => void): () => void;
-  windowAction(action: "minimize" | "maximize" | "close"): Promise<void>;
   /** QuickChat 悬浮窗的显隐切换；由设置页或调试入口触发，正常交互走全局快捷键。 */
   toggleQuickChat(): Promise<void>;
   hideQuickChat(): Promise<void>;
@@ -1862,25 +1986,18 @@ export interface DesktopApi {
   setRecipeState(projectId: string, sessionId: string, recipeId: DesktopRecipeId, state: DesktopRecipeState): Promise<void>;
   skillCatalog(projectId?: string): Promise<DesktopSkillCatalogSnapshot>;
   skillSettings(projectId: string): Promise<DesktopSkillSettings>;
-  importSkillSource(): Promise<DesktopManagedSkillSource | undefined>;
-  installSkillSource(sourceId: string): Promise<void>;
   importExistingSkills(skillIds: string[]): Promise<DesktopSkillImportResult[]>;
-  skillDiscovery(): Promise<DesktopSkillDiscoverySnapshot>;
-  searchSkills(query: string, limit?: number, offset?: number): Promise<DesktopSkillsShSearchResult>;
-  installDiscoveredSkill(skill: DesktopDiscoverableSkill): Promise<import("../extensions/skillDiscovery.js").SkillInstallResult>;
-  skillVersion(skillId: string): Promise<import("../extensions/skillVersions.js").ManagedSkillVersion | undefined>;
-  updateSkillVersion(skillId: string, expectedVersion: string): Promise<import("../extensions/skillDiscovery.js").SkillInstallResult>;
-  rollbackSkillVersion(skillId: string, expectedVersion: string): Promise<import("../extensions/skillVersions.js").ManagedSkillVersion>;
-  addSkillRepository(repository: DesktopSkillRepository): Promise<DesktopSkillRepository[]>;
-  removeSkillRepository(owner: string, name: string): Promise<DesktopSkillRepository[]>;
-  readSkillFile(skillId: string, relativePath: string): Promise<DesktopSkillFilePreview>;
-  checkSkill(skillId: string): Promise<import("../extensions/skillDiagnostics.js").SkillDiagnosticReport>;
-  writeSkillFile(skillId: string, relativePath: string, content: string): Promise<void>;
-  openSkillDirectory(skillId: string): Promise<void>;
+  skillVersion(skillId: string, projectId?: string): Promise<import("../extensions/skillVersions.js").ManagedSkillVersion | undefined>;
+  updateSkillVersion(skillId: string, expectedVersion: string, projectId?: string): Promise<import("../extensions/skillDiscovery.js").SkillInstallResult>;
+  rollbackSkillVersion(skillId: string, expectedVersion: string, projectId?: string): Promise<import("../extensions/skillVersions.js").ManagedSkillVersion>;
+  readSkillFile(skillId: string, relativePath: string, projectId?: string): Promise<DesktopSkillFilePreview>;
+  openSkillDirectory(skillId: string, projectId?: string): Promise<void>;
+  pluginCatalog(projectId: string): Promise<DesktopPluginCatalogSnapshot>;
   pluginRegistry(projectId: string): Promise<DesktopPluginRegistrySnapshot>;
   refreshPluginRegistry(projectId: string): Promise<DesktopPluginRegistrySnapshot>;
   installPlugin(projectId: string, pluginId: string, scope?: "project" | "global"): Promise<DesktopPluginSummary>;
   setPluginEnabled(projectId: string, pluginId: string, enabled: boolean, scope?: "project" | "global"): Promise<DesktopPluginSummary>;
+  setPluginSettings(projectId: string, pluginId: string, settings: PluginSettings, scope?: "project" | "global"): Promise<DesktopPluginSummary>;
   uninstallPlugin(projectId: string, pluginId: string, scope?: "project" | "global"): Promise<void>;
   openPluginDirectory(projectId: string, scope?: "project" | "global"): Promise<void>;
   mcpSnapshot(projectId?: string): Promise<DesktopMcpSnapshot>;

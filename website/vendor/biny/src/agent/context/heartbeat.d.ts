@@ -2,6 +2,7 @@ export interface HeartbeatSchedule {
     intervalMinutes: number;
     activeHoursStart: number;
     activeHoursEnd: number;
+    timezone?: string;
 }
 /** 开关与节奏由全局配置 `heartbeat` 提供，未配置时走这里。 */
 export declare const defaultHeartbeatSchedule: HeartbeatSchedule;
@@ -14,6 +15,7 @@ export interface HeartbeatStatus {
     activeHours: {
         start: number;
         end: number;
+        timezone?: string;
     };
 }
 export interface HeartbeatSchedulerOptions {
@@ -28,6 +30,21 @@ export interface HeartbeatSchedulerOptions {
         setInterval: (callback: () => void, ms: number) => ReturnType<typeof setInterval>;
         clearInterval: (handle: ReturnType<typeof setInterval>) => void;
     };
+}
+export interface HeartbeatTaskReviewItem {
+    label: string;
+    status: string;
+    updatedAt?: string;
+    details?: string[];
+}
+export declare function heartbeatTaskReviewPrompt(items: readonly HeartbeatTaskReviewItem[]): string | undefined;
+export declare function isHeartbeatQuietOutput(output: string): boolean;
+/** Suppress a repeated Heartbeat alert after the same short summary has been delivered twice. */
+export declare class HeartbeatNotificationDeduper {
+    private lastAlertText;
+    private lastAlertCount;
+    shouldSend(notification: string): boolean;
+    recordDelivered(notification: string): void;
 }
 export declare class HeartbeatFileStore {
     readonly path: string;
@@ -47,7 +64,6 @@ export declare class HeartbeatScheduler {
     private inFlight;
     private lastHeartbeatAt?;
     private lastError?;
-    private diaryHintDate?;
     constructor(options: HeartbeatSchedulerOptions);
     start(): void;
     stop(): void;

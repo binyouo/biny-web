@@ -14,11 +14,13 @@ export declare function configDocumentRevision(config: AgentConfig): string;
 export declare function assertConfigRevision(expectedRevision: string, config: AgentConfig): void;
 export declare function withGlobalConfigWriteLock<T>(root: string, operation: () => Promise<T>): Promise<T>;
 /** 只保留"变了就必须重建 Runtime"的字段，其余键被剔除，使 revision 比较忽略它们。 */
-export declare function restartRelevantConfig(config: AgentConfig): AgentConfig;
+export declare function restartRelevantConfig(config: AgentConfig, skillProjectKey?: string): AgentConfig;
 /**
  * 这次配置变更是否需要重启驻留的 Runtime Host。
  *
  * 判据不能用"revision 变了"——那等于把所有设置都当成需要重启。
  * 用一个记忆开关把所有项目的 Host 拖去重启，正是"开关要等很久"的来源。
  */
-export declare function configChangeRequiresRuntimeRestart(before: AgentConfig, after: AgentConfig): boolean;
+export declare function configChangeRequiresRuntimeRestart(before: AgentConfig, after: AgentConfig, skillProjectKey?: string): boolean;
+/** 项目覆盖虽存于共享文档，生效范围仍限定为该项目。 */
+export declare function isProjectSkillOverrideChange(before: AgentConfig, after: AgentConfig, projectKey: string): boolean;

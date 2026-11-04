@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ModelChoice } from "../../../../../llm/ModelManager.js";
-import { defaultEmbeddingModelRef, embeddingModelRefKey, type EmbeddingModelRef, type LocalEmbeddingModelId } from "../../../../../llm/embedding/types.js";
+import { defaultEmbeddingModelRef, embeddingModelRefKey, localEmbeddingModelIds, type EmbeddingModelRef, type LocalEmbeddingModelId } from "../../../../../llm/embedding/types.js";
 import { selectMemoryEmbeddingModel } from "../../../../../llm/embedding/selectMemoryModel.js";
 import type {
   DesktopEmbeddingModelDescriptor,
+  DesktopModelCatalogResult,
+  DesktopModelConnection,
   DesktopMemoryArchivePage,
   DesktopMemoryArchiveMutationResult,
   DesktopMemoryEntriesPage,
@@ -23,6 +25,7 @@ import { catalogForConnection } from "../../providerCatalog.js";
 import { resolveProviderIconId } from "../../providerIconIds.js";
 import { Icon } from "../Icon.js";
 import { useSettingsDraft } from "./SettingsDraftContext.js";
+import { SettingsSwitch } from "./SettingsSwitch.js";
 import { ModelTestButton, ModelTestResult } from "./ModelTestButton.js";
 import { SettingsModelPicker } from "./SettingsModelPicker.js";
 import { SettingsDetailLayer } from "./SettingsDetailLayer.js";
@@ -31,6 +34,7 @@ import { modelPickerGroups, type SettingsModelPickerGroup } from "./settingsMode
 interface SettingsMemoryProps {
   models: ModelChoice[];
   embeddingModels: DesktopEmbeddingModelDescriptor[];
+  onFetchModelCatalog?(providerAlias: string): Promise<DesktopModelCatalogResult>;
   hidden?: boolean;
   workspaceAvailable: boolean;
   sessionRunning: boolean;
@@ -65,7 +69,8 @@ function rangeProgress(value: number, min: number, max: number): React.CSSProper
   return { "--range-progress": `${Math.min(100, Math.max(0, percent))}%` } as React.CSSProperties;
 }
 
-function embeddingPickerGroups(models: readonly DesktopEmbeddingModelDescriptor[], automaticKey?: string): SettingsModelPickerGroup[] {
+function embeddingPickerGroups(models: readonly DesktopEmbeddingModelDescriptor[], automaticKey?: string,
+  connections: readonly DesktopModelConnection[] = []): SettingsModelPickerGroup[] {
   const groups = new Map<string, SettingsModelPickerGroup>();
   for (const model of models) {
     const local = model.source === "local";
@@ -77,7 +82,7 @@ function embeddingPickerGroups(models: readonly DesktopEmbeddingModelDescriptor[
     const groupKey = `${providerType}:${providerAlias}:${model.endpoint ?? ""}`;
     const group = groups.get(groupKey) ?? {
       key: groupKey,
-      label: local ? "本地模型" : catalog?.label ?? providerAlias,
+      label: local ? "本地模型" : connections.find(connection => connection.providerAlias === providerAlias)?.displayName ?? catalog?.label ?? providerAlias,
       iconTone: local ? "local" : catalog?.iconTone ?? providerType,
       iconId: resolveProviderIconId(undefined, catalog?.id),
       options: []
@@ -88,7 +93,8 @@ function embeddingPickerGroups(models: readonly DesktopEmbeddingModelDescriptor[
     group.options.push({
       value: modelKey === automaticKey ? "auto" : modelKey,
       label: model.displayName,
-      trailing: modelKey === automaticKey ? "默认" : local
+      searchText: `${providerAlias} ${model.ref.model}`,
+      trailing: modelKey === automaticKey ? "自动" : local
         ? [sizeLabel, model.installed === false ? "未下载" : undefined].filter(Boolean).join(" · ")
         : model.available === false ? "未配置" : undefined,
       disabled: !local && model.available === false
@@ -101,6 +107,7 @@ function embeddingPickerGroups(models: readonly DesktopEmbeddingModelDescriptor[
 export function SettingsMemory({
   models,
   embeddingModels,
+  onFetchModelCatalog,
   hidden,
   workspaceAvailable,
   sessionRunning,
@@ -127,6 +134,12 @@ export function SettingsMemory({
   onNotify
 }: SettingsMemoryProps): React.JSX.Element {
   const { draft, setMemory, snapshot, dirtyCount } = useSettingsDraft();
+  const sleepDetailsAvailable = draft?.memory.sleepEnabled === true;
+  const visibleRef = useRef(false);
+  useEffect(() => {
+    visibleRef.current = !hidden && workspaceAvailable;
+    return () => { visibleRef.current = false; };
+  }, [hidden, workspaceAvailable]);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalEntries, setTotalEntries] = useState(0);
   const [stats, setStats] = useState<DesktopMemoryStats>();
@@ -138,10 +151,26 @@ export function SettingsMemory({
   const [saving, setSaving] = useState(false);
   const [modelTesting, setModelTesting] = useState(false);
   const [modelTestResult, setModelTestResult] = useState<DesktopModelConnectionTestResult>();
+  const modelTestRequestRef = useRef(0);
+  const selectedMemoryModel = models.find((model) => model.alias === (draft?.memory.memoryModel ?? snapshot?.models.resolvedToolModel));
+  const memoryModelConfiguration: DesktopModelConfigurationInput | undefined = selectedMemoryModel ? {
+    alias: selectedMemoryModel.alias,
+    displayName: selectedMemoryModel.displayName,
+    providerAlias: selectedMemoryModel.provider,
+    providerType: selectedMemoryModel.providerType as DesktopModelConfigurationInput["providerType"],
+    model: selectedMemoryModel.model,
+    baseUrl: selectedMemoryModel.baseUrl,
+    supportsTools: selectedMemoryModel.supportsTools === true,
+    supportsThinking: selectedMemoryModel.efforts.length > 0
+  } : undefined;
+  const memoryModelTestKey = JSON.stringify(memoryModelConfiguration);
   const [exporting, setExporting] = useState(false);
   const [editor, setEditor] = useState<{ id?: string; value: string }>();
   const [error, setError] = useState<string>();
   const [sleepRuns, setSleepRuns] = useState<MemorySleepRun[]>([]);
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runsError, setRunsError] = useState<string>();
   const [sleepPreview, setSleepPreview] = useState<DesktopMemorySleepPreview>();
   const [sleepStatus, setSleepStatus] = useState<DesktopMemoryStats["maintenance"]>();
   const [sleepStatusError, setSleepStatusError] = useState<string>();
@@ -153,12 +182,28 @@ export function SettingsMemory({
   const [embeddingStatus, setEmbeddingStatus] = useState<DesktopMemoryEmbeddingStatus>();
   const [embeddingWorking, setEmbeddingWorking] = useState<"download" | "rebuild">();
   const [embeddingError, setEmbeddingError] = useState<string>();
-  const [sleepAdvancedOpen, setSleepAdvancedOpen] = useState(false);
+  const [embeddingCatalogError, setEmbeddingCatalogError] = useState<string>();
+  const [loadingEmbeddingModels, setLoadingEmbeddingModels] = useState(false);
+  const embeddingCatalogRequests = useRef(new Map<string, Promise<void>>());
+  const embeddingCatalogRequest = useRef(0);
+  useEffect(() => () => { embeddingCatalogRequest.current += 1; }, [hidden, snapshot?.configRevision]);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveLoaded, setArchiveLoaded] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState<string>();
   const disclosureId = useId();
   const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
   const [archivePage, setArchivePage] = useState(0);
+  const searchRequestRef = useRef(0);
+  const pendingSearchRef = useRef<string | undefined>(undefined);
   const [pendingEmbeddingModel, setPendingEmbeddingModel] = useState<EmbeddingModelRef>();
+
+  useEffect(() => {
+    setModelTesting(false);
+    setModelTestResult(undefined);
+    // 结果只属于发起测试时的配置；选择变化后，迟到回执不能覆盖新测试。
+    return () => { modelTestRequestRef.current += 1; };
+  }, [memoryModelTestKey]);
 
   const refreshEmbeddingStatus = useCallback(async (): Promise<void> => {
     if (!workspaceAvailable) return;
@@ -170,45 +215,182 @@ export function SettingsMemory({
     }
   }, [onLoadEmbeddingStatus, workspaceAvailable]);
 
-  const reload = useCallback(async (pageIndex = 0, archivePageIndex = 0): Promise<void> => {
-    if (!workspaceAvailable) return;
+  const loadEmbeddingModels = async (): Promise<void> => {
+    if (!onFetchModelCatalog || !snapshot || !workspaceAvailable) return;
+    const connections = snapshot.models.connections.filter(connection => connection.enabled !== false
+      && connection.supportsEmbedding && (!connection.requiresApiKey || connection.hasCredential));
+    const request = ++embeddingCatalogRequest.current;
+    setEmbeddingCatalogError(undefined);
+    if (!connections.length) { setLoadingEmbeddingModels(false); return; }
+    setLoadingEmbeddingModels(true);
+    const results = await Promise.allSettled(connections.map(connection => {
+      const key = JSON.stringify([snapshot.configRevision, connection.providerAlias, connection.providerType, connection.baseUrl, connection.hasCredential]);
+      let pending = embeddingCatalogRequests.current.get(key);
+      if (!pending) {
+        pending = onFetchModelCatalog(connection.providerAlias).then(() => undefined);
+        embeddingCatalogRequests.current.set(key, pending);
+        void pending.catch(() => { embeddingCatalogRequests.current.delete(key); });
+      }
+      return pending;
+    }));
+    try {
+      const status = await onLoadEmbeddingStatus();
+      if (request !== embeddingCatalogRequest.current || !visibleRef.current) return;
+      setEmbeddingStatus(status);
+      const failures = results.flatMap((result, index) => result.status === "rejected"
+        ? [`${connections[index]!.displayName ?? connections[index]!.providerAlias}：${errorMessage(result.reason)}`] : []);
+      setEmbeddingCatalogError(failures.length ? failures.join("；") : undefined);
+    } catch (cause) {
+      if (request === embeddingCatalogRequest.current && visibleRef.current) setEmbeddingCatalogError(errorMessage(cause));
+    } finally {
+      if (request === embeddingCatalogRequest.current) setLoadingEmbeddingModels(false);
+    }
+  };
+
+  /**
+   * 重新读取当前页。省略页码时沿用当前所在页：增删改一条记忆后把用户丢回第一页会丢掉
+   * 阅读位置，在第 5 页删一条尤其明显。
+   *
+   * 页码走 ref 而不是 state：reload 被挂载与轮询 effect 依赖，把页码放进依赖数组会让
+   * 每次翻页都重建 reload 并重新触发一次加载。
+   */
+  const currentPageRef = useRef(currentPage);
+  const archivePageRef = useRef(archivePage);
+  const loadRequestRef = useRef(0);
+  const archiveRequestRef = useRef(0);
+  const runsRequestRef = useRef(0);
+  const statusRequestRef = useRef(0);
+
+  const loadArchive = useCallback(async (pageIndex = archivePageRef.current): Promise<void> => {
+    if (!visibleRef.current) return;
+    const request = ++archiveRequestRef.current;
+    const previousPage = archivePageRef.current;
+    archivePageRef.current = pageIndex;
+    setArchiveLoading(true);
+    try {
+      let page = await onLoadArchived(pageIndex * ARCHIVE_PAGE_SIZE, ARCHIVE_PAGE_SIZE, true);
+      if (request !== archiveRequestRef.current) return;
+      const nextPage = Math.min(pageIndex, Math.max(0, Math.ceil(page.total / ARCHIVE_PAGE_SIZE) - 1));
+      if (nextPage !== pageIndex) page = await onLoadArchived(nextPage * ARCHIVE_PAGE_SIZE, ARCHIVE_PAGE_SIZE, true);
+      if (request !== archiveRequestRef.current) return;
+      archivePageRef.current = nextPage;
+      setArchivePage(nextPage);
+      setArchivedEntries(page.entries);
+      setArchiveChains(page.chains ?? {});
+      setArchivedTotal(page.total);
+      setArchiveLoaded(true);
+      setArchiveError(undefined);
+    } catch (cause) {
+      if (request !== archiveRequestRef.current) return;
+      archivePageRef.current = previousPage;
+      setArchiveError(errorMessage(cause));
+    } finally {
+      if (request === archiveRequestRef.current) setArchiveLoading(false);
+    }
+  }, [onLoadArchived]);
+
+  const loadRuns = useCallback(async (): Promise<void> => {
+    if (!visibleRef.current) return;
+    const request = ++runsRequestRef.current;
+    setRunsLoading(true);
+    try {
+      const runs = await onSleepRuns();
+      if (request !== runsRequestRef.current) return;
+      setSleepRuns(runs);
+      setRunsError(undefined);
+    } catch (cause) {
+      if (request === runsRequestRef.current) setRunsError(errorMessage(cause));
+    } finally {
+      if (request === runsRequestRef.current) setRunsLoading(false);
+    }
+  }, [onSleepRuns]);
+
+  const reload = useCallback(async (pageIndex?: number): Promise<void> => {
+    if (!visibleRef.current) return;
+    const request = ++loadRequestRef.current;
+    const requestedPage = pageIndex ?? currentPageRef.current;
+    const statusRequest = ++statusRequestRef.current;
     setLoading(true);
     try {
-      const [nextStats, page, status, runs, initialArchive] = await Promise.all([
+      const [nextStats, page] = await Promise.all([
         onLoadStats(),
-        onLoadEntries(pageIndex * PAGE_SIZE, PAGE_SIZE),
-        onSleepStatus(),
-        onSleepRuns(),
-        onLoadArchived(archivePageIndex * ARCHIVE_PAGE_SIZE, ARCHIVE_PAGE_SIZE, true)
+        onLoadEntries(requestedPage * PAGE_SIZE, PAGE_SIZE)
       ]);
-      const lastArchivePage = Math.max(0, Math.ceil(initialArchive.total / ARCHIVE_PAGE_SIZE) - 1);
-      const nextArchivePage = Math.min(archivePageIndex, lastArchivePage);
-      const archived = nextArchivePage === archivePageIndex
-        ? initialArchive
-        : await onLoadArchived(nextArchivePage * ARCHIVE_PAGE_SIZE, ARCHIVE_PAGE_SIZE, true);
+      if (request !== loadRequestRef.current) return;
+      // 删掉末页最后一条后该页会空掉：回退到仍存在的最后一页，而不是显示空列表。
+      const lastEntryPage = Math.max(0, Math.ceil(page.total / PAGE_SIZE) - 1);
+      const entries = page.entries.length === 0 && requestedPage > lastEntryPage
+        ? await onLoadEntries(lastEntryPage * PAGE_SIZE, PAGE_SIZE)
+        : page;
+      if (request !== loadRequestRef.current) return;
+      currentPageRef.current = Math.floor(entries.offset / PAGE_SIZE);
       setStats(nextStats);
-      setEntries(page.entries);
-      setTotalEntries(page.total);
-      setCurrentPage(Math.floor(page.offset / PAGE_SIZE));
-      setSleepStatus(status);
-      lastSleepState.current = status.state;
-      lastSleepRun.current = status.lastRun ? `${status.lastRun.id}:${status.lastRun.status}:${status.lastRun.finishedAt ?? ""}` : undefined;
-      setSleepStatusError(undefined);
-      setSleepRuns(runs);
-      setArchivedEntries(archived.entries);
-      setArchiveChains(archived.chains ?? {});
-      setArchivedTotal(archived.total);
-      setArchivePage(nextArchivePage);
+      setEntries(entries.entries);
+      setTotalEntries(entries.total);
+      setCurrentPage(Math.floor(entries.offset / PAGE_SIZE));
+      if (statusRequest === statusRequestRef.current) {
+        const status = nextStats.maintenance;
+        setSleepStatus(status);
+        lastSleepState.current = status.state;
+        lastSleepRun.current = status.lastRun ? `${status.lastRun.id}:${status.lastRun.status}:${status.lastRun.finishedAt ?? ""}` : undefined;
+        setSleepStatusError(undefined);
+      }
       setError(undefined);
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      setError(message);
+      if (request === loadRequestRef.current) setError(errorMessage(cause));
     } finally {
-      setLoading(false);
+      if (request === loadRequestRef.current) setLoading(false);
     }
-  }, [onLoadArchived, onLoadEntries, onLoadStats, onSleepRuns, onSleepStatus, workspaceAvailable]);
+  }, [onLoadEntries, onLoadStats]);
 
-  useEffect(() => { if (!hidden) void reload(); }, [hidden, reload]);
+  const refresh = useCallback(async (): Promise<void> => {
+    if (!visibleRef.current) return;
+    if (sleepDetailsAvailable && archiveOpen) void loadArchive(); else setArchiveLoaded(false);
+    if (sleepDetailsAvailable && runsOpen) void loadRuns();
+    await reload();
+  }, [archiveOpen, runsOpen, loadArchive, loadRuns, reload, sleepDetailsAvailable]);
+
+  const loadPage = async (pageIndex: number, kind: "entries" | "archive" = "entries"): Promise<void> => {
+    if (!workspaceAvailable) return;
+    if (kind === "archive") return await loadArchive(pageIndex);
+    const request = ++loadRequestRef.current;
+    const previousPage = currentPage;
+    // 完整刷新可能由维护完成触发；沿用正在前往的页，避免抢回旧位置。
+    currentPageRef.current = pageIndex;
+    const readPage = async (index: number): Promise<DesktopMemoryEntriesPage> => onLoadEntries(index * PAGE_SIZE, PAGE_SIZE);
+    setLoading(true);
+    try {
+      let page = await readPage(pageIndex);
+      if (request !== loadRequestRef.current) return;
+      const nextPage = Math.min(pageIndex, Math.max(0, Math.ceil(page.total / PAGE_SIZE) - 1));
+      if (nextPage !== pageIndex) page = await readPage(nextPage);
+      if (request !== loadRequestRef.current) return;
+      currentPageRef.current = nextPage;
+      setEntries(page.entries);
+      setTotalEntries(page.total);
+      setCurrentPage(nextPage);
+      setError(undefined);
+    } catch (cause) {
+      if (request !== loadRequestRef.current) return;
+      currentPageRef.current = previousPage;
+      setError(errorMessage(cause));
+    } finally {
+      if (request === loadRequestRef.current) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!hidden && workspaceAvailable) void reload();
+    return () => { loadRequestRef.current += 1; statusRequestRef.current += 1; };
+  }, [hidden, reload, workspaceAvailable]);
+  useEffect(() => {
+    if (!hidden && sleepDetailsAvailable && archiveOpen) void loadArchive();
+    return () => { archiveRequestRef.current += 1; };
+  }, [hidden, archiveOpen, loadArchive, sleepDetailsAvailable, workspaceAvailable]);
+  useEffect(() => {
+    if (!hidden && sleepDetailsAvailable && runsOpen) void loadRuns();
+    return () => { runsRequestRef.current += 1; };
+  }, [hidden, runsOpen, loadRuns, sleepDetailsAvailable, workspaceAvailable]);
   useEffect(() => { if (!hidden) void refreshEmbeddingStatus(); }, [hidden, refreshEmbeddingStatus]);
   useEffect(() => {
     if (hidden || !workspaceAvailable) return;
@@ -217,8 +399,9 @@ export function SettingsMemory({
     const timer = window.setInterval(() => {
       if (pending) return;
       pending = true;
+      const request = ++statusRequestRef.current;
       void onSleepStatus().then((next) => {
-        if (cancelled) return;
+        if (cancelled || request !== statusRequestRef.current) return;
         const nextRun = next.lastRun ? `${next.lastRun.id}:${next.lastRun.status}:${next.lastRun.finishedAt ?? ""}` : undefined;
         const finished = next.state !== "running"
           && (lastSleepState.current === "running" || lastSleepRun.current !== nextRun);
@@ -226,22 +409,28 @@ export function SettingsMemory({
         lastSleepRun.current = nextRun;
         setSleepStatus(next);
         setSleepStatusError(undefined);
-        if (finished) void reload();
+        if (finished) void refresh();
       }).catch((cause: unknown) => {
-        if (!cancelled) {
+        if (!cancelled && request === statusRequestRef.current) {
           setSleepStatus(undefined);
           setSleepStatusError(errorMessage(cause));
         }
       }).finally(() => { pending = false; });
-    }, 1_000);
+    }, sleepStatus?.state === "running" ? 1_000 : 10_000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [hidden, onSleepStatus, reload, workspaceAvailable]);
+  }, [hidden, onSleepStatus, refresh, sleepStatus?.state, workspaceAvailable]);
   useEffect(() => {
     if (hidden || !embeddingWorking || !workspaceAvailable) return;
+    let cancelled = false;
+    let pending = false;
     const timer = window.setInterval(() => {
-      void onLoadEmbeddingStatus().then(setEmbeddingStatus).catch(() => undefined);
+      if (cancelled || pending) return;
+      pending = true;
+      void onLoadEmbeddingStatus().then((next) => {
+        if (!cancelled) setEmbeddingStatus(next);
+      }).catch(() => undefined).finally(() => { pending = false; });
     }, 750);
-    return () => window.clearInterval(timer);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, [embeddingWorking, hidden, onLoadEmbeddingStatus, workspaceAvailable]);
 
   const downloadEmbedding = async (model: LocalEmbeddingModelId): Promise<void> => {
@@ -296,21 +485,40 @@ export function SettingsMemory({
     }
   };
 
+  useEffect(() => {
+    setSearching(false);
+    return () => {
+      searchRequestRef.current += 1;
+      pendingSearchRef.current = undefined;
+    };
+  }, [hidden, onSearch, workspaceAvailable]);
+
   const search = async (): Promise<void> => {
+    if (hidden || !workspaceAvailable) return;
     const value = query.trim();
     if (!value) {
+      searchRequestRef.current += 1;
+      pendingSearchRef.current = undefined;
       setSearchResults([]);
-      await reload();
+      setSearching(false);
       return;
     }
+    if (pendingSearchRef.current === value) return;
+    const request = ++searchRequestRef.current;
+    pendingSearchRef.current = value;
     setSearching(true);
     try {
-      setSearchResults(await onSearch(value));
+      const matches = await onSearch(value);
+      if (request === searchRequestRef.current) setSearchResults(matches);
     } catch (cause) {
+      if (request !== searchRequestRef.current) return;
       setSearchResults([]);
       onNotify(errorMessage(cause));
     } finally {
-      setSearching(false);
+      if (request === searchRequestRef.current) {
+        pendingSearchRef.current = undefined;
+        setSearching(false);
+      }
     }
   };
 
@@ -324,8 +532,8 @@ export function SettingsMemory({
         ? await onUpdate(editId, { content: value })
         : await onAdd({ content: value, importance: 0.5 });
       setStats(next);
-      setEditor(undefined);
-      await reload();
+      setEditor((current) => current === editor ? undefined : current);
+      await refresh();
       onNotify(editId ? "记忆已更新" : "记忆已添加");
     } catch (cause) {
       onNotify(errorMessage(cause));
@@ -341,9 +549,12 @@ export function SettingsMemory({
     try {
       const next = await onArchiveEntry(entry.id, archived);
       setStats(next);
-      await reload(0, archivePage);
+      // 归档同样只影响一条记录，保留当前页；该页被清空时由 reload 回退到最后一页。
+      await refresh();
       const mergedNotice = !archived && next.mergedTarget
-        ? `此条记忆曾合并到仍在使用的记忆「${next.mergedTarget.content}」。如不再需要，可手动删除该合并项。`
+        ? entry.archivedReason === "updated"
+          ? `当前版本「${next.mergedTarget.content}」仍在使用，请核对是否需要保留。`
+          : `此条记忆曾合并到仍在使用的记忆「${next.mergedTarget.content}」。如不再需要，可手动删除该合并项。`
         : null;
       setRestoreNotice(mergedNotice);
       onNotify(mergedNotice ? `记忆已恢复。${mergedNotice}` : archived ? "记忆已归档" : "记忆已恢复");
@@ -385,7 +596,7 @@ export function SettingsMemory({
     try {
       const next = await onRunSleep();
       setStats(next);
-      await reload();
+      await refresh();
       const run = next.maintenance.lastRun;
       onNotify(run?.status === "failed" ? `记忆整理失败：${run.error ?? "请查看近期运行"}`
         : run?.status === "cancelled" ? "记忆整理已取消"
@@ -404,7 +615,7 @@ export function SettingsMemory({
     try {
       const next = await onDeleteEntry(entry.id);
       setStats(next);
-      await reload();
+      await refresh();
       onNotify("记忆已删除");
     } catch (cause) {
       onNotify(errorMessage(cause));
@@ -414,14 +625,18 @@ export function SettingsMemory({
   };
 
   const clearAll = async (): Promise<void> => {
-    if (!stats || saving || (totalEntries === 0 && archivedTotal === 0)) return;
+    if (!stats || saving || (totalEntries === 0 && archiveLoaded && archivedTotal === 0)) return;
     if (!window.confirm("确定要删除所有记忆吗？此操作无法撤销。")) return;
     setSaving(true);
     try {
       const next = await onClearMemory();
+      // 清空前或清空期间发起的搜索都属于旧记忆，迟到回执不能恢复它们。
+      searchRequestRef.current += 1;
+      pendingSearchRef.current = undefined;
+      setSearching(false);
       setStats(next);
       setSearchResults([]);
-      await reload();
+      await refresh();
     } catch (cause) {
       onNotify(errorMessage(cause));
     } finally {
@@ -430,27 +645,18 @@ export function SettingsMemory({
   };
 
   const testMemoryModel = async (): Promise<void> => {
-    const selected = models.find((model) => model.alias === (policy?.memoryModel ?? snapshot?.models.resolvedToolModel));
-    if (!selected || modelTesting) return;
+    if (!memoryModelConfiguration || modelTesting) return;
+    const request = ++modelTestRequestRef.current;
     setModelTesting(true);
     setModelTestResult(undefined);
     try {
-      const result = await onTestModelConfiguration({
-        alias: selected.alias,
-        displayName: selected.displayName,
-        providerAlias: selected.provider,
-        providerType: selected.providerType as DesktopModelConfigurationInput["providerType"],
-        model: selected.model,
-        baseUrl: selected.baseUrl,
-        supportsTools: selected.supportsTools === true,
-        supportsThinking: selected.efforts.length > 0
-      });
-      setModelTestResult(result);
+      const result = await onTestModelConfiguration(memoryModelConfiguration);
+      if (request === modelTestRequestRef.current) setModelTestResult(result);
     } catch (cause) {
       // 结果（含失败原因）统一由按钮下方的结果卡片展示，不再弹 toast。
-      setModelTestResult({ ok: false, message: errorMessage(cause) });
+      if (request === modelTestRequestRef.current) setModelTestResult({ ok: false, message: errorMessage(cause) });
     } finally {
-      setModelTesting(false);
+      if (request === modelTestRequestRef.current) setModelTesting(false);
     }
   };
 
@@ -488,18 +694,24 @@ export function SettingsMemory({
     }
   };
 
+  const renderMemoryEditor = (entryId: string): React.JSX.Element => (
+    <div className="activity-memory-entry-editor">
+      <textarea className="settings-field" aria-label="编辑记忆" onChange={(event) => setEditor({ id: entryId, value: event.target.value })} rows={3} value={editor?.value ?? ""} />
+      <div><button className="settings-action settings-text-action text-button" onClick={() => setEditor(undefined)} type="button">取消</button><button className="settings-action settings-primary-button" disabled={saving} onClick={() => { void saveText(); }} type="button">保存</button></div>
+    </div>
+  );
+
   if (!workspaceAvailable) return <MemoryState title="请先选择项目" detail="打开项目后即可查看和管理记忆。" />;
   if (!draft) return <MemoryState title="正在加载记忆…" />;
   const policy = draft.memory;
   const selectedEmbeddingModel = policy.embeddingModel ?? defaultEmbeddingModelRef;
   const selectedEmbeddingKey = embeddingModelRefKey(selectedEmbeddingModel);
-  // 主进程热重载前可能仍返回历史本地模型；renderer 也按当前协议过滤一次，避免旧进程把
-  // 已移除的模型重新暴露给用户。云端 provider 模型不在这里裁剪。
-  const availableEmbeddingModels = (embeddingStatus?.models.length ? embeddingStatus.models : embeddingModels)
-    .filter((model) => model.source !== "local" || (model.ref.kind === "local" && model.ref.model === "multilingual-e5-small"));
+  // 热重载前的旧进程可能仍返回已移除的模型；按当前协议过滤本地选项。
+  const availableEmbeddingModels = (embeddingStatus?.models ?? embeddingModels)
+    .filter((model) => model.source !== "local" || (model.ref.kind === "local" && localEmbeddingModelIds.includes(model.ref.model)));
   const automaticEmbeddingModel = (snapshot?.memory.embeddingModel ?? defaultEmbeddingModelRef).kind === "auto"
-    ? embeddingStatus?.activeModel ?? selectMemoryEmbeddingModel(defaultEmbeddingModelRef, availableEmbeddingModels)
-    : selectMemoryEmbeddingModel(defaultEmbeddingModelRef, availableEmbeddingModels);
+    ? embeddingStatus?.activeModel ?? selectMemoryEmbeddingModel({ kind: "auto" }, availableEmbeddingModels)
+    : selectMemoryEmbeddingModel({ kind: "auto" }, availableEmbeddingModels);
   const effectiveEmbeddingModel = selectedEmbeddingModel.kind === "auto" ? automaticEmbeddingModel : selectedEmbeddingModel;
   const selectedEmbeddingDescriptor = effectiveEmbeddingModel
     ? availableEmbeddingModels.find((model) => embeddingModelRefKey(model.ref) === embeddingModelRefKey(effectiveEmbeddingModel))
@@ -522,10 +734,11 @@ export function SettingsMemory({
     && embeddingModelRefKey(snapshot.memory.embeddingModel) !== selectedEmbeddingKey;
   const canRebuild = !modelDraftChanged && dirtyCount === 0 && selectedInstalled;
   const embeddingGroups = embeddingPickerGroups(availableEmbeddingModels,
-    selectedEmbeddingModel.kind === "auto" && automaticEmbeddingModel ? embeddingModelRefKey(automaticEmbeddingModel) : undefined);
+    selectedEmbeddingModel.kind === "auto" && automaticEmbeddingModel ? embeddingModelRefKey(automaticEmbeddingModel) : undefined,
+    snapshot?.models.connections);
   if (!embeddingGroups.some((group) => group.options.some((option) => option.value === "auto"))) {
-    embeddingGroups.push({ key: "auto", label: "默认", iconTone: "local", options: [{
-      value: "auto", label: "自动选择可用服务商", trailing: automaticEmbeddingModel ? "默认" : "暂无可用模型"
+    embeddingGroups.push({ key: "auto", label: "服务商", iconTone: "local", options: [{
+      value: "auto", label: "自动选择可用服务商", trailing: automaticEmbeddingModel ? undefined : "暂无可用模型"
     }] });
   }
   if (!embeddingGroups.some((group) => group.options.some((option) => option.value === selectedEmbeddingKey))) {
@@ -535,7 +748,7 @@ export function SettingsMemory({
       iconTone: selectedEmbeddingModel.kind === "provider" ? selectedEmbeddingModel.provider : "local",
       options: [{
         value: selectedEmbeddingKey,
-        label: selectedEmbeddingModel.kind === "auto" ? "自动选择可用服务商" : selectedEmbeddingModel.kind === "local" ? "Multilingual E5 Small" : selectedEmbeddingModel.model,
+        label: selectedEmbeddingModel.kind === "auto" ? "自动选择可用服务商" : selectedEmbeddingModel.model,
         trailing: "当前配置"
       }]
     });
@@ -562,7 +775,7 @@ export function SettingsMemory({
   return (
     <div className="settings-sections activity-memory-settings" hidden={hidden}>
       <section className="activity-memory-group" id="memory-feature" tabIndex={-1}>
-        <MemoryCheckbox
+        <SettingsSwitch
           checked={policy.enabled}
           detail="保存重要信息，供后续对话使用。"
           label="启用记忆"
@@ -571,78 +784,22 @@ export function SettingsMemory({
       </section>
 
       {policy.enabled ? <>
-        <section className="activity-memory-group" id="memory-statistics" tabIndex={-1}>
-          <h3>统计</h3>
-          <div className="activity-memory-stat-grid">
-            <div><strong>{memoryCount}</strong><span>记忆总数</span></div>
-            <div><strong>{stats?.memoryStats.autoGenerated ?? 0}</strong><span>自动生成</span></div>
-            <div><strong>{stats?.memoryStats.manualAdded ?? 0}</strong><span>手动添加</span></div>
-          </div>
-        </section>
-
-        <section className="activity-memory-group" id="memory-add" tabIndex={-1}>
-          <h3>添加记忆</h3>
-          <textarea aria-label="输入您希望 AI 记住的内容..." disabled={sessionRunning || saving || editor?.id !== undefined} onChange={(event) => setEditor({ value: event.target.value })} placeholder="输入您希望 AI 记住的内容..." rows={4} value={editor?.id ? "" : editor?.value ?? ""} />
-          <button className="settings-primary-button" disabled={saving || editor?.id !== undefined || !editor?.value.trim()} onClick={() => { void saveText(); }} type="button">{saving && !editor?.id ? "添加中…" : "添加记忆"}</button>
-        </section>
-
-        <section className="activity-memory-group" id="memory-search" tabIndex={-1}>
-          <h3>搜索记忆</h3>
-          <input aria-label="搜索记忆" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void search(); }} placeholder="按语义相似度搜索..." type="search" value={query} />
-          {searching ? <p className="activity-memory-empty-hint">搜索中…</p> : null}
-          {searchResults.length > 0 ? <div className="activity-memory-search-results">
-            <h4>搜索结果 ({searchResults.length})</h4>
-            {searchResults.map((match) => <div className="activity-memory-search-result" key={match.id}><p>{match.excerpt}</p><span>{Math.round(match.score * 100)}% 匹配</span></div>)}
-          </div> : null}
-        </section>
-
-        <section className="activity-memory-group" id="memory-list" tabIndex={-1}>
-          <div className="section-heading-row">
-            <h3>记忆列表</h3>
-            <div className="activity-memory-list-actions">
-              <button aria-label="刷新记忆" className="icon-button" disabled={loading || saving} onClick={() => { void reload(); }} type="button"><Icon name="refresh" size={14} /></button>
-              <button className="ghost-button" disabled={saving || (totalEntries === 0 && archivedTotal === 0)} onClick={() => { void clearAll(); }} type="button">清空全部</button>
-            </div>
-          </div>
-          {error ? <p className="settings-effective-hint is-blocked">{error}</p> : null}
-          {loading && !stats ? <p className="activity-memory-empty-hint">加载中...</p> : null}
-          {(!loading || stats) && !entries.length ? <p className="activity-memory-empty">暂无记忆。可手动添加，也可从对话自动提取。</p> : null}
-          <div className="activity-memory-entries">
-            {entries.map((entry) => (
-              <article className="activity-memory-entry" key={entry.id}>
-                {editor?.id === entry.id ? <div className="activity-memory-entry-editor">
-                  <textarea aria-label="编辑记忆" onChange={(event) => setEditor({ id: entry.id, value: event.target.value })} rows={3} value={editor.value} />
-                  <div><button className="text-button" onClick={() => setEditor(undefined)} type="button">取消</button><button className="settings-primary-button" disabled={saving} onClick={() => { void saveText(); }} type="button">保存</button></div>
-                </div> : <>
-                  <div className="activity-memory-entry-content">
-                    <div className="activity-memory-entry-meta"><span>{entry.source === "manual" ? "手动" : "自动"}</span><span>{entry.durability === "temporary" ? "临时" : "长期"}</span><span>{formatDate(entry.updatedAt)}</span>{entry.accessCount > 0 ? <span>已访问 {entry.accessCount} 次</span> : null}</div>
-                    <p>{entry.content}</p>
-                  </div>
-                  <div className="activity-memory-entry-actions"><button aria-label="编辑记忆" className="icon-button" disabled={saving} onClick={() => setEditor({ id: entry.id, value: entry.content })} type="button"><Icon name="edit" size={13} /></button><button aria-label="删除记忆" className="icon-button" disabled={saving} onClick={() => { void remove(entry); }} type="button"><Icon name="trash" size={13} /></button></div>
-                </>}
-              </article>
-            ))}
-          </div>
-          {totalEntries > PAGE_SIZE ? <MemoryPagination currentPage={currentPage} onPageChange={(page) => { void reload(page); }} totalEntries={totalEntries} /> : null}
-        </section>
-
         <section className="activity-memory-group" id="memory-retrieval" tabIndex={-1}>
-            <MemoryCheckbox
+            <SettingsSwitch
             checked={policy.useMemories}
             detail="对话开始时召回相关记忆。"
             label="自动检索记忆"
             onChange={(useMemories) => setMemory({ ...policy, useMemories })}
           />
           {policy.useMemories ? <div className="activity-memory-nested">
-            <MemoryCheckbox
+            <SettingsSwitch
               checked={policy.queryRewrite}
-              detail="用工具模型提炼搜索词，提高匹配准确度。"
+              detail="用工具模型提炼搜索词。"
               label="查询重写"
               onChange={(queryRewrite) => setMemory({ ...policy, queryRewrite })}
             />
             <MemoryRange
               ariaLabel="最大检索记忆数"
-              description="注入对话上下文的相关记忆最大数量（1-20）。"
               label="最大检索记忆数"
               max={20}
               min={1}
@@ -652,7 +809,6 @@ export function SettingsMemory({
             />
             <MemoryRange
               ariaLabel="相似度阈值"
-              description="检索记忆所需的最低相似度分数。值越高，匹配越严格。"
               label="相似度阈值"
               max={100}
               maxLabel="严格 (100%)"
@@ -666,201 +822,284 @@ export function SettingsMemory({
         </section>
 
         <section className="activity-memory-group" id="memory-summarization" tabIndex={-1}>
-            <MemoryCheckbox
+            <SettingsSwitch
             checked={policy.generateMemories}
-            detail="自动从对话中提取并存储重要信息作为新记忆。"
+            detail="将对话中的重要信息保存为记忆。"
             label="自动总结对话"
             onChange={(generateMemories) => setMemory({ ...policy, generateMemories })}
           />
         </section>
 
-        <section className="activity-memory-group activity-memory-sleep-card" id="memory-sleep" tabIndex={-1}>
-          <div className="activity-memory-heading-row">
-            <h3>记忆睡眠</h3>
-          {sleepStatus ? <span>已归档 {archivedTotal} · 下次：{nextSleepDate(policy.sleepTime, sleepRuns, lastRun)} {policy.sleepTime}</span> : null}
+        <section className="settings-section activity-memory-group" id="memory-search" tabIndex={-1}>
+          <h3>搜索记忆</h3>
+          <div className="settings-section-body">
+            <input className="settings-field" aria-label="搜索记忆" onChange={(event) => {
+              searchRequestRef.current += 1;
+              pendingSearchRef.current = undefined;
+              setQuery(event.target.value);
+              setSearchResults([]);
+              setSearching(false);
+            }} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) void search(); }} placeholder="按语义相似度搜索..." type="search" value={query} />
+            {searching ? <p className="activity-memory-empty-hint">搜索中…</p> : null}
+            {searchResults.length > 0 ? <div className="activity-memory-search-results">
+              <h4>搜索结果 ({searchResults.length})</h4>
+              {searchResults.map((match) => <div className="activity-memory-search-result" key={match.id}><p>{match.excerpt}</p><span>{Math.round(match.score * 100)}% 匹配</span></div>)}
+            </div> : null}
           </div>
-          <MemoryCheckbox
-            checked={policy.sleepEnabled}
-            detail="定时合并重复项、归档过期记忆；错过时间会在下次启动时补跑，归档内容可恢复。"
-            label="启用每日记忆整理"
-            onChange={(sleepEnabled) => setMemory({ ...policy, sleepEnabled })}
-          />
-          {policy.sleepEnabled ? <div className="activity-memory-sleep-content">
-            {sleepRunning && sleepStage ? <p className="activity-memory-sleep-preview" role="status">当前阶段：{sleepStage} · 已归档 {lastRun?.archived ?? 0} 条 · 精确重复 {lastRun?.archivedExact ?? 0} · 过期 {lastRun?.archivedExpired ?? 0} · 相似合并 {lastRun?.archivedSimilarity ?? 0} · LLM 合并 {lastRun?.archivedLlm ?? 0}</p> : null}
-            {sleepStatusError ? <p role="alert">记忆整理状态读取失败：{sleepStatusError}</p> : null}
-            {lastRun ? <div className="activity-memory-last-run">
-              <strong>上次：{lastRun.status}（{lastRun.trigger}）</strong>
-              <span>{formatDate(lastRun.startedAt)}</span>
-              <small>检查 {lastRun.examined} 条 · 归档 {lastRun.exact} 条完全重复、{lastRun.expired} 条过期、{lastRun.similarity} 条近似、{lastRun.llm} 条 LLM 合并{lastRun.synthesisFailed > 0 ? ` · ⚠ ${lastRun.synthesisFailed} 条合成失败（来源保留，可继续召回）` : ""}</small>
-              {lastRun.inputTokens > 0 || lastRun.outputTokens > 0 ? <small>输入 {lastRun.inputTokens} tokens · 输出 {lastRun.outputTokens} tokens</small> : null}
-              {lastRun.error ? <div role="alert">整理失败：{lastRun.error}{lastRun.status === "failed" ? <button className="text-button" disabled={sleepRunning || saving || sessionRunning} onClick={() => { void runSleep(); }} type="button">重试整理</button> : null}</div> : null}
-            </div> : null}
-            <div className="activity-memory-sleep-actions">
-              <button className="ghost-button" disabled={sleepRunning || saving || sessionRunning} onClick={() => { void runSleep(); }} type="button">{sleepRunning ? "运行中…" : "立即运行睡眠周期"}</button>
-              <button className="text-button" disabled={sleepRunning || saving || sessionRunning} onClick={() => { void previewSleep(); }} type="button">预览下一次周期</button>
-              {sleepRunning ? <button className="text-button" onClick={() => { void cancelSleep(); }} type="button">取消</button> : null}
+        </section>
+
+        <section className="settings-section activity-memory-group" id="memory-list" tabIndex={-1}>
+          <div className="section-heading-row">
+            <h3>记忆列表</h3>
+            <div className="activity-memory-list-actions">
+              <button aria-label="刷新记忆" className="icon-button" disabled={loading || saving} onClick={() => { void refresh(); }} type="button"><Icon name="refresh" size={14} /></button>
+              <button className="settings-action settings-secondary-button ghost-button" disabled={!stats || saving || (totalEntries === 0 && archiveLoaded && archivedTotal === 0)} onClick={() => { void clearAll(); }} type="button">清空全部</button>
             </div>
-            {sleepPreview ? <div className="activity-memory-sleep-preview" role="status">
-              {sleepPreview.skipped || !sleepPreview.available ? <p>本次预览已跳过：{sleepPreview.skipped ?? "当前无法预览整理"}</p> : <>
-                <p>拟归档 {sleepPreview.archiveProposed?.length ?? sleepPreview.temporaryToArchive} 条 · 拟合成 {sleepPreview.synthesisProposed?.length ?? 0} 条 · 将删除 {sleepPreview.archivedToDelete} 条旧归档</p>
-                {sleepPreview.inputTokens || sleepPreview.outputTokens ? <p>输入 {sleepPreview.inputTokens ?? 0} tokens · 输出 {sleepPreview.outputTokens ?? 0} tokens</p> : null}
-                {sleepPreview.synthesisProposed?.map((entry, index) => <p key={`${index}:${entry.content}`}>+ {entry.content}</p>)}
-              </>}
-            </div> : null}
-            <label className="activity-memory-row">
-              <span><strong>触发时间</strong><small>每天本地触发时间。03:00 默认避开使用高峰，可改成你想要的任意时间。</small></span>
-              <input aria-label="触发时间" disabled={saving || sessionRunning} type="time" value={policy.sleepTime} onChange={(event) => setMemory({ ...policy, sleepTime: event.target.value })} />
-            </label>
-            <div className="activity-memory-retention">
-              <h4>保留策略</h4>
-              <MemoryNumber
-                description="超过该天数仍未被访问的临时记忆会被归档。"
-                label="临时记忆 TTL（天）"
-                max={3650}
-                min={1}
-                onChange={(temporaryTtl) => setMemory({ ...policy, temporaryTtl })}
-                value={policy.temporaryTtl}
-              />
-              <MemoryNumber
-                description="归档中的记忆超过该天数会被彻底删除，超出后无法恢复。"
-                label="归档保留（天）"
-                max={3650}
-                min={1}
-                onChange={(archiveRetentionDays) => setMemory({ ...policy, archiveRetentionDays })}
-                value={policy.archiveRetentionDays}
-              />
-            </div>
-            <button aria-controls={`${disclosureId}-sleep-advanced`} aria-expanded={sleepAdvancedOpen} className="activity-memory-disclosure" onClick={() => setSleepAdvancedOpen((open) => !open)} type="button">
-              <Icon className="activity-memory-disclosure-chevron" name="chevron" size={12} />
-              <span>相似度与 LLM 合并参数</span>
-            </button>
-            <div className="activity-memory-advanced-content" hidden={!sleepAdvancedOpen} id={`${disclosureId}-sleep-advanced`}>
-              <MemoryRange
-                ariaLabel="相似度合并阈值"
-                description="余弦相似度高于此阈值的条目视为近似重复，直接合并，不调用 LLM。"
-                label="相似度合并阈值"
-                max={100}
-                min={80}
-                onChange={(value) => setMemory({ ...policy, similarityMergeThreshold: value / 100 })}
-                value={Math.round(policy.similarityMergeThreshold * 100)}
-                valueLabel={`${Math.round(policy.similarityMergeThreshold * 100)}%`}
-              />
-              <MemoryCheckbox
-                checked={policy.useLlm}
-                detail={undefined}
-                label="使用 LLM 合并模糊相似的条目"
-                onChange={(useLlm) => setMemory({ ...policy, useLlm })}
-              />
-              {policy.useLlm ? <>
-                <MemoryRange
-                  ariaLabel="LLM 合并下界"
-                  description="相似度在此值与上方阈值之间的条目会送到记忆工具模型，由它保守判断是否合并。"
-                  label="LLM 合并下界"
-                  max={95}
-                  min={70}
-                  onChange={(value) => setMemory({ ...policy, llmMergeLow: value / 100 })}
-                  value={Math.round(policy.llmMergeLow * 100)}
-                  valueLabel={`${Math.round(policy.llmMergeLow * 100)}%`}
-                />
-                <MemoryNumber
-                  description="一次合并提示送给模型的最大簇成员数。"
-                  label="LLM 单次批量大小"
-                  max={100}
-                  min={1}
-                  onChange={(llmBatchSize) => setMemory({ ...policy, llmBatchSize })}
-                  value={policy.llmBatchSize}
-                />
-              </> : null}
-            </div>
-            <div className="activity-memory-sleep-footer">
-              <button className="ghost-button" disabled={exporting} onClick={() => { void exportSnapshot(); }} type="button">{exporting ? "正在导出…" : "导出记忆快照"}</button>
-            </div>
-            <button aria-controls={`${disclosureId}-archive`} aria-expanded={archiveOpen} className="activity-memory-disclosure" onClick={() => setArchiveOpen((open) => !open)} type="button">
-              <Icon className="activity-memory-disclosure-chevron" name="chevron" size={12} />
-              <Icon name="archive" size={12} />
-              <span>归档记忆（{archivedTotal}）</span>
-            </button>
-            {restoreNotice ? <p className="activity-memory-sleep-preview" role="status">{restoreNotice}</p> : null}
-            <div className="activity-memory-archive-list" hidden={!archiveOpen} id={`${disclosureId}-archive`}>
-              {archivedEntries.length === 0 ? <p>暂无归档记忆。</p> : archivedEntries.map((entry) => (
+          </div>
+          <div className="settings-section-body">
+            {error ? <p className="settings-effective-hint is-blocked">{error}</p> : null}
+            {loading && !stats ? <p className="activity-memory-empty-hint">加载中...</p> : null}
+            {(!loading || stats) && !entries.length ? <p className="activity-memory-empty">暂无记忆。可手动添加，也可从对话自动提取。</p> : null}
+            <div className="activity-memory-entries">
+              {entries.map((entry) => (
                 <article className="activity-memory-entry" key={entry.id}>
-                  <div className="activity-memory-entry-content"><p>{entry.content}</p><small>{entry.archivedReason ?? "手动"} · {entry.archivedAt ? formatDate(entry.archivedAt) : ""}{entry.mergedInto ? (() => {
-                    const chain = archiveChains[entry.id] ?? { finalId: entry.mergedInto, depth: 0 };
-                    const label = `#${chain.finalId.slice(-6)}`;
-                    return <span title={chain.depth > 1 ? `→ ${label}（链深度 ${chain.depth}）` : undefined}> · → {label}{chain.depth > 1 ? `（链深度 ${chain.depth}）` : ""}</span>;
-                  })() : null}</small></div>
-                  <button aria-label="恢复" className="ghost-button" disabled={saving} onClick={() => { void archive(entry); }} type="button">恢复</button>
+                  {editor?.id === entry.id ? renderMemoryEditor(entry.id) : <>
+                    <div className="activity-memory-entry-content">
+                      <div className="activity-memory-entry-meta"><span>{entry.source === "manual" ? "手动" : "自动"}</span><span>{entry.durability === "temporary" ? "临时" : "长期"}</span><span>{formatDate(entry.updatedAt)}</span>{entry.accessCount > 0 ? <span>已访问 {entry.accessCount} 次</span> : null}</div>
+                      <p>{entry.content}</p>
+                    </div>
+                    <div className="activity-memory-entry-actions"><button aria-label="编辑记忆" className="icon-button" disabled={saving} onClick={() => setEditor({ id: entry.id, value: entry.content })} type="button"><Icon name="edit" size={13} /></button><button aria-label="删除记忆" className="icon-button" disabled={saving} onClick={() => { void remove(entry); }} type="button"><Icon name="trash" size={13} /></button></div>
+                  </>}
                 </article>
               ))}
-              {archivePages > 1 ? <div className="activity-memory-archive-pagination">
-                <button aria-label="上一页归档记忆" className="ghost-button" disabled={loading || visibleArchivePage === 0} onClick={() => { void reload(currentPage, visibleArchivePage - 1); }} type="button">←</button>
-                <span>{visibleArchivePage + 1} / {archivePages}</span>
-                <button aria-label="下一页归档记忆" className="ghost-button" disabled={loading || visibleArchivePage + 1 >= archivePages} onClick={() => { void reload(currentPage, visibleArchivePage + 1); }} type="button">→</button>
-              </div> : null}
             </div>
-            {sleepRuns.length > 0 ? <details className="activity-memory-run-details">
-              <summary className="activity-memory-disclosure">
-                <Icon className="activity-memory-disclosure-chevron" name="chevron" size={12} />
-                <Icon name="trash" size={12} />
-                <span>近期运行（{sleepRuns.length}）</span>
-              </summary>
-              <div>{sleepRuns.map((run) => <p key={run.id}>{formatDate(run.startedAt)} · {run.status} · {run.trigger} · {run.archived} archived{run.synthesisFailed > 0 ? ` · ⚠ ${run.synthesisFailed} 合成失败` : ""}</p>)}</div>
-            </details> : null}
-          </div> : null}
+            {/* 保存会按更新时间重排事实；留在当前页的续写草稿仍须可以保存或取消。 */}
+            {editor?.id && !entries.some((entry) => entry.id === editor.id) ? <article className="activity-memory-entry">
+              <div className="activity-memory-entry-content">
+                <p className="settings-effective-hint">正在编辑不在当前页的记忆</p>
+                {renderMemoryEditor(editor.id)}
+              </div>
+            </article> : null}
+            {totalEntries > PAGE_SIZE ? <MemoryPagination currentPage={currentPage} disabled={loading} onPageChange={(page) => { void loadPage(page); }} totalEntries={totalEntries} /> : null}
+          </div>
         </section>
 
-        <section className="activity-memory-group" id="memory-tool-model" tabIndex={-1}>
+        <section className="settings-section activity-memory-group" id="memory-add" tabIndex={-1}>
+          <h3>添加记忆</h3>
+          <div className="settings-section-body">
+            <textarea className="settings-field" aria-label="输入您希望 AI 记住的内容..." disabled={sessionRunning || saving || editor?.id !== undefined} onChange={(event) => setEditor({ value: event.target.value })} placeholder="输入您希望 AI 记住的内容..." rows={4} value={editor?.id ? "" : editor?.value ?? ""} />
+            <button aria-busy={saving && !editor?.id} className="settings-action settings-primary-button" disabled={saving || editor?.id !== undefined || !editor?.value.trim()} onClick={() => { void saveText(); }} type="button">添加记忆</button>
+          </div>
+        </section>
+
+        <section className="settings-section activity-memory-group" id="memory-tool-model" tabIndex={-1}>
           <h3>记忆工具模型</h3>
-          <p>为记忆操作指定专用工具模型。留空则使用通用工具模型。</p>
-          <div className="activity-memory-model-picker-row">
-            <SettingsModelPicker
-              ariaLabel="记忆工具模型"
-              groups={modelPickerGroups(models.filter((model) => model.providerType !== "acp"))}
-              inheritLabel="使用默认工具模型"
-              onChange={(memoryModel) => setMemory({ ...policy, memoryModel })}
-              placeholder="使用默认工具模型"
-              value={policy.memoryModel}
-            />
-            <ModelTestButton disabled={!models.length} label="测试模型" testing={modelTesting} onClick={() => { void testMemoryModel(); }} />
+          <div className="settings-section-body">
+            <p>为记忆操作指定专用工具模型。留空则使用通用工具模型。</p>
+            <div className="activity-memory-model-picker-row">
+              <SettingsModelPicker
+                ariaLabel="记忆工具模型"
+                groups={modelPickerGroups(models.filter((model) => model.providerType !== "acp"), snapshot?.models.connections)}
+                inheritDetail={models.find((model) => model.alias === snapshot?.models.resolvedToolModel)?.model}
+                inheritLabel="使用默认工具模型"
+                resolvedValue={snapshot?.models.resolvedToolModel}
+                onChange={(memoryModel) => setMemory({ ...policy, memoryModel })}
+                placeholder="使用默认工具模型"
+                value={policy.memoryModel}
+              />
+              <ModelTestButton disabled={!models.length} label="测试模型" testing={modelTesting} onClick={() => { void testMemoryModel(); }} />
+            </div>
+            <ModelTestResult result={modelTestResult} />
           </div>
-          <ModelTestResult result={modelTestResult} />
         </section>
 
-        <section className="activity-memory-group" id="memory-embedding" tabIndex={-1}>
+        <section className="settings-section activity-memory-group" id="memory-embedding" tabIndex={-1}>
           <h3>嵌入模型</h3>
-          <p>用于语义搜索的嵌入模型。默认自动选择已配置的服务商，也可手动选择本地模型；没有可用模型时语义搜索暂不可用。</p>
-          <SettingsModelPicker
-            ariaLabel="选择嵌入模型"
-            compact
-            groups={embeddingGroups}
-            selectionHint={selectedEmbeddingModel.kind === "auto" ? selectedEmbeddingDescriptor ? "默认" : "暂无可用模型" : undefined}
-            onChange={(value) => {
-              if (!value) return;
-              if (value === "auto") { selectEmbeddingModel({ kind: "auto" }); return; }
-              const selected = availableEmbeddingModels.find((model) => embeddingModelRefKey(model.ref) === value);
-              if (selected?.available === false) { onNotify("这个云端搜索模型当前不可用，请先配置对应服务商。"); return; }
-              if (selected) selectEmbeddingModel(selected.ref);
-            }}
-            placeholder="选择嵌入模型"
-            value={selectedEmbeddingKey}
-          />
-          {embeddingStatus?.needsRebuild ? <div aria-live="polite" className="activity-memory-embedding-error" role="alert">
-            <span>{embeddingStatus.degradedReason ?? "嵌入索引与当前模型不匹配，自动记忆召回已暂停。"}</span>
-            <button className="text-button" disabled={!canRebuild || embeddingWorking !== undefined || sessionRunning} onClick={() => { void rebuildEmbedding(); }} type="button">立即重建</button>
-          </div> : null}
-          {embeddingStatus && !embeddingStatus.needsRebuild && embeddingStatus.pendingEntries > 0 ? <div aria-live="polite" className="activity-memory-embedding-error" role="status">
-            <span>{embeddingStatus.pendingEntries} 条记忆尚未索引，未索引条目暂不能被语义搜索或自动召回命中。{embeddingStatus.indexedEntries > 0 ? "已索引条目仍可检索。" : ""}</span>
-            <button className="text-button" disabled={!canRebuild || embeddingWorking !== undefined || sessionRunning} onClick={() => { void rebuildEmbedding(); }} type="button">立即重建</button>
-          </div> : null}
-          {embeddingOperation?.kind === "download" && embeddingOperation.progress?.progress !== undefined ? <div className="activity-memory-embedding-progress" role="status">正在下载模型… {Math.round(embeddingOperation.progress.progress * 100)}%</div> : null}
-          {embeddingError ? <div aria-live="polite" className="activity-memory-embedding-error"><span>暂时无法读取状态，请重试。</span><button className="text-button" disabled={embeddingWorking !== undefined} onClick={() => { void refreshEmbeddingStatus(); }} type="button">重试</button></div> : null}
-          {embeddingNeedsDownload && selectedEmbeddingModel.kind === "local" ? (downloadingSelected ? <button className="text-button" onClick={() => { void cancelEmbeddingDownload(selectedEmbeddingModel.model); }} type="button">取消</button> : <button className="text-button" disabled={embeddingWorking !== undefined || sessionRunning} onClick={() => { void downloadEmbedding(selectedEmbeddingModel.model); }} type="button">下载模型</button>) : null}
-          {rebuilding ? <div className="activity-memory-embedding-progress" role="status">正在重建嵌入向量... <button className="text-button" onClick={() => { void cancelEmbeddingRebuild(); }} type="button">取消</button></div> : null}
-          <div className="activity-memory-embedding-footer">
-            <span>如有需要，手动重新生成所有记忆的嵌入向量。</span>
-            <button className="ghost-button" disabled={!canRebuild || embeddingWorking !== undefined || sessionRunning} onClick={() => { void rebuildEmbedding(); }} type="button">重建嵌入向量</button>
+          <div className="settings-section-body">
+            <p>{selectedEmbeddingModel.kind === "local" ? "本地模型下载后可离线检索。" : "查询及记忆正文会发送到所选服务商。"}</p>
+            <SettingsModelPicker
+              ariaLabel="选择嵌入模型"
+              groups={embeddingGroups}
+              onOpen={() => { void loadEmbeddingModels(); }}
+              selectionHint={selectedEmbeddingModel.kind === "auto" ? selectedEmbeddingDescriptor ? "自动" : "暂无可用模型" : undefined}
+              onChange={(value) => {
+                if (!value) return;
+                if (value === "auto") { selectEmbeddingModel({ kind: "auto" }); return; }
+                const selected = availableEmbeddingModels.find((model) => embeddingModelRefKey(model.ref) === value);
+                if (selected?.available === false) { onNotify("这个云端搜索模型当前不可用，请先配置对应服务商。"); return; }
+                if (selected) selectEmbeddingModel(selected.ref);
+              }}
+              placeholder="选择嵌入模型"
+              value={selectedEmbeddingKey}
+            />
+            {loadingEmbeddingModels ? <small role="status">正在读取服务商模型…</small> : null}
+            {embeddingCatalogError ? <div role="alert" className="activity-memory-embedding-error">{embeddingCatalogError}</div> : null}
+            {embeddingStatus?.needsRebuild ? <div aria-live="polite" className="activity-memory-embedding-error" role="alert">
+              <span>{embeddingStatus.degradedReason ?? "嵌入索引与当前模型不匹配，自动记忆召回已暂停。"}</span>
+              <button className="settings-action settings-text-action text-button" disabled={!canRebuild || embeddingWorking !== undefined || sessionRunning} onClick={() => { void rebuildEmbedding(); }} type="button">立即重建</button>
+            </div> : null}
+            {embeddingStatus && !embeddingStatus.needsRebuild && embeddingStatus.pendingEntries > 0 ? <div aria-live="polite" className="activity-memory-embedding-error" role="status">
+              <span>{embeddingStatus.pendingEntries} 条记忆尚未索引，未索引条目暂不能被语义搜索或自动召回命中。{embeddingStatus.indexedEntries > 0 ? "已索引条目仍可检索。" : ""}</span>
+              <button className="settings-action settings-text-action text-button" disabled={!canRebuild || embeddingWorking !== undefined || sessionRunning} onClick={() => { void rebuildEmbedding(); }} type="button">立即重建</button>
+            </div> : null}
+            {embeddingOperation?.kind === "download" && embeddingOperation.progress?.progress !== undefined ? <div className="activity-memory-embedding-progress" role="status">正在下载模型… {Math.round(embeddingOperation.progress.progress * 100)}%</div> : null}
+            {embeddingError ? <div aria-live="polite" className="activity-memory-embedding-error"><span>暂时无法读取状态，请重试。</span><button className="settings-action settings-text-action text-button" disabled={embeddingWorking !== undefined} onClick={() => { void refreshEmbeddingStatus(); }} type="button">重试</button></div> : null}
+            {embeddingNeedsDownload && selectedEmbeddingModel.kind === "local" ? (downloadingSelected ? <button className="settings-action settings-text-action text-button" onClick={() => { void cancelEmbeddingDownload(selectedEmbeddingModel.model); }} type="button">取消</button> : <button className="settings-action settings-text-action text-button" disabled={embeddingWorking !== undefined || sessionRunning} onClick={() => { void downloadEmbedding(selectedEmbeddingModel.model); }} type="button">下载模型</button>) : null}
+            {rebuilding ? <div className="activity-memory-embedding-progress" role="status">正在重建嵌入向量... <button className="settings-action settings-text-action text-button" onClick={() => { void cancelEmbeddingRebuild(); }} type="button">取消</button></div> : null}
+            <div className="activity-memory-embedding-footer">
+              <span>如有需要，手动重新生成所有记忆的嵌入向量。</span>
+              <button className="settings-action settings-secondary-button ghost-button" disabled={!canRebuild || embeddingWorking !== undefined || sessionRunning} onClick={() => { void rebuildEmbedding(); }} type="button">重建嵌入向量</button>
+            </div>
+            {dirtyCount > 0 && modelDraftChanged ? <small className="activity-memory-embedding-hint">模型选择还在草稿中，请先保存设置。</small> : null}
           </div>
-          {dirtyCount > 0 && modelDraftChanged ? <small className="activity-memory-embedding-hint">模型选择还在草稿中，请先保存设置。</small> : null}
+        </section>
+
+        <section className="settings-section activity-memory-group" id="memory-statistics" tabIndex={-1}>
+          <h3>统计</h3>
+          <div className="settings-section-body">
+            <div className="activity-memory-stat-grid">
+              <div><strong>{memoryCount}</strong><span>记忆总数</span></div>
+              <div><strong>{stats?.memoryStats.autoGenerated ?? 0}</strong><span>自动生成</span></div>
+              <div><strong>{stats?.memoryStats.manualAdded ?? 0}</strong><span>手动添加</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-section activity-memory-group activity-memory-sleep-card" id="memory-sleep" tabIndex={-1}>
+          <div className="activity-memory-heading-row">
+            <h3>记忆睡眠</h3>
+          {sleepStatus ? <span>{archiveLoaded ? `已归档 ${archivedTotal} · ` : ""}下次：{nextSleepDate(policy.sleepTime, sleepStatus.sleepRuns ?? [], lastRun)} {policy.sleepTime}</span> : null}
+          </div>
+          <div className="settings-section-body">
+            <SettingsSwitch
+              checked={policy.sleepEnabled}
+              detail="定时合并重复项、归档过期记忆；错过时间会在下次启动时补跑，归档内容可恢复。"
+              label="启用每日记忆整理"
+              onChange={(sleepEnabled) => setMemory({ ...policy, sleepEnabled })}
+            />
+            {policy.sleepEnabled ? <div className="activity-memory-sleep-content">
+              {sleepRunning && sleepStage ? <p className="activity-memory-sleep-preview" role="status">当前阶段：{sleepStage} · 已归档 {lastRun?.archived ?? 0} 条 · 精确重复 {lastRun?.archivedExact ?? 0} · 过期 {lastRun?.archivedExpired ?? 0} · 相似合并 {lastRun?.archivedSimilarity ?? 0} · LLM 合并 {lastRun?.archivedLlm ?? 0}</p> : null}
+              {sleepStatusError ? <p role="alert">记忆整理状态读取失败：{sleepStatusError}</p> : null}
+              {lastRun ? <div className="activity-memory-last-run">
+                <strong>上次：{lastRun.status}（{lastRun.trigger}）</strong>
+                <span>{formatDate(lastRun.startedAt)}</span>
+                <small>检查 {lastRun.examined} 条 · 归档 {lastRun.exact} 条完全重复、{lastRun.expired} 条过期、{lastRun.similarity} 条近似、{lastRun.llm} 条 LLM 合并{lastRun.synthesisFailed > 0 ? ` · ⚠ ${lastRun.synthesisFailed} 条合成失败（来源保留，可继续召回）` : ""}</small>
+                {lastRun.inputTokens > 0 || lastRun.outputTokens > 0 ? <small>输入 {lastRun.inputTokens} tokens · 输出 {lastRun.outputTokens} tokens</small> : null}
+                {lastRun.error ? <div role="alert">整理失败：{lastRun.error}{lastRun.status === "failed" ? <button className="settings-action settings-text-action text-button" disabled={sleepRunning || saving || sessionRunning} onClick={() => { void runSleep(); }} type="button">重试整理</button> : null}</div> : null}
+              </div> : null}
+              <div className="activity-memory-sleep-actions">
+                <button aria-busy={sleepRunning} className="settings-action settings-secondary-button ghost-button" disabled={sleepRunning || saving || sessionRunning} onClick={() => { void runSleep(); }} type="button">立即运行睡眠周期</button>
+                <button className="settings-action settings-text-action text-button" disabled={sleepRunning || saving || sessionRunning} onClick={() => { void previewSleep(); }} type="button">预览下一次周期</button>
+                {sleepRunning ? <button className="settings-action settings-text-action text-button" onClick={() => { void cancelSleep(); }} type="button">取消</button> : null}
+              </div>
+              {sleepPreview ? <div className="activity-memory-sleep-preview" role="status">
+                {sleepPreview.skipped || !sleepPreview.available ? <p>本次预览已跳过：{sleepPreview.skipped ?? "当前无法预览整理"}</p> : <>
+                  <p>拟归档 {sleepPreview.archiveProposed?.length ?? sleepPreview.temporaryToArchive} 条 · 拟合成 {sleepPreview.synthesisProposed?.length ?? 0} 条 · 将删除 {sleepPreview.archivedToDelete} 条旧归档</p>
+                  {sleepPreview.inputTokens || sleepPreview.outputTokens ? <p>输入 {sleepPreview.inputTokens ?? 0} tokens · 输出 {sleepPreview.outputTokens ?? 0} tokens</p> : null}
+                  {sleepPreview.synthesisProposed?.map((entry, index) => <p key={`${index}:${entry.content}`}>+ {entry.content}</p>)}
+                </>}
+              </div> : null}
+              <label className="activity-memory-row">
+                <span><strong>触发时间</strong><small>每天按本地时间执行。</small></span>
+                <input className="settings-field" aria-label="触发时间" disabled={saving || sessionRunning} type="time" value={policy.sleepTime} onChange={(event) => setMemory({ ...policy, sleepTime: event.target.value })} />
+              </label>
+              <div className="activity-memory-retention">
+                <h4>保留策略</h4>
+                <MemoryNumber
+                  description="超过该天数仍未被访问的临时记忆会被归档。"
+                  label="临时记忆 TTL（天）"
+                  max={3650}
+                  min={1}
+                  onChange={(temporaryTtl) => setMemory({ ...policy, temporaryTtl })}
+                  value={policy.temporaryTtl}
+                />
+                <MemoryNumber
+                  description="到期永久删除，无法恢复。"
+                  label="归档保留（天）"
+                  max={3650}
+                  min={1}
+                  onChange={(archiveRetentionDays) => setMemory({ ...policy, archiveRetentionDays })}
+                  value={policy.archiveRetentionDays}
+                />
+              </div>
+              <div className="activity-memory-advanced">
+                <h4>相似度与 LLM 合并参数</h4>
+                <MemoryRange
+                  ariaLabel="相似度合并阈值"
+                  description="高于此值直接合并，不调用模型。"
+                  label="相似度合并阈值"
+                  max={100}
+                  min={80}
+                  onChange={(value) => setMemory({ ...policy, similarityMergeThreshold: value / 100 })}
+                  value={Math.round(policy.similarityMergeThreshold * 100)}
+                  valueLabel={`${Math.round(policy.similarityMergeThreshold * 100)}%`}
+                />
+                <SettingsSwitch
+                  checked={policy.useLlm}
+                  detail={undefined}
+                  label="使用 LLM 合并模糊相似的条目"
+                  onChange={(useLlm) => setMemory({ ...policy, useLlm })}
+                />
+                {policy.useLlm ? <>
+                  <MemoryRange
+                    ariaLabel="LLM 合并下界"
+                    description="此值与上方阈值之间，由记忆工具模型判断是否合并。"
+                    label="LLM 合并下界"
+                    max={95}
+                    min={70}
+                    onChange={(value) => setMemory({ ...policy, llmMergeLow: value / 100 })}
+                    value={Math.round(policy.llmMergeLow * 100)}
+                    valueLabel={`${Math.round(policy.llmMergeLow * 100)}%`}
+                  />
+                  <MemoryNumber
+                    description="每批交给模型的记忆条数上限。"
+                    label="LLM 单次批量大小"
+                    max={100}
+                    min={1}
+                    onChange={(llmBatchSize) => setMemory({ ...policy, llmBatchSize })}
+                    value={policy.llmBatchSize}
+                  />
+                </> : null}
+              </div>
+              <div className="activity-memory-sleep-footer">
+                <button aria-busy={exporting} className="settings-action settings-secondary-button ghost-button" disabled={exporting} onClick={() => { void exportSnapshot(); }} type="button">导出记忆快照</button>
+              </div>
+              <button aria-controls={`${disclosureId}-archive`} aria-expanded={archiveOpen} className="activity-memory-disclosure" onClick={() => setArchiveOpen((open) => !open)} type="button">
+                <Icon className="activity-memory-disclosure-chevron" name="chevron" size={12} />
+                <Icon name="archive" size={12} />
+                <span>归档记忆{archiveLoaded ? `（${archivedTotal}）` : ""}</span>
+              </button>
+              {restoreNotice ? <p className="activity-memory-sleep-preview" role="status">{restoreNotice}</p> : null}
+              <div className="activity-memory-archive-list" hidden={!archiveOpen} id={`${disclosureId}-archive`}>
+                {archiveError ? <p role="alert">{archiveError}<button className="settings-action settings-text-action" onClick={() => { void loadArchive(); }} type="button">重试</button></p> : null}
+                {archiveLoading ? <p role="status">正在读取归档…</p> : null}
+                {archiveLoaded && archivedEntries.length === 0 ? <p>暂无归档记忆。</p> : archivedEntries.map((entry) => (
+                  <article className="activity-memory-entry" key={entry.id}>
+                    <div className="activity-memory-entry-content"><p>{entry.content}</p><small>{entry.archivedReason === "updated" ? "更新前版本" : entry.archivedReason ?? "手动"} · {entry.archivedAt ? formatDate(entry.archivedAt) : ""}{entry.mergedInto ? (() => {
+                      const chain = archiveChains[entry.id] ?? { finalId: entry.mergedInto, depth: 0 };
+                      const label = `#${chain.finalId.slice(-6)}`;
+                      return <span title={chain.depth > 1 ? `→ ${label}（链深度 ${chain.depth}）` : undefined}> · → {label}{chain.depth > 1 ? `（链深度 ${chain.depth}）` : ""}</span>;
+                    })() : null}</small></div>
+                    <button aria-label="恢复" className="settings-action settings-secondary-button ghost-button" disabled={saving} onClick={() => { void archive(entry); }} type="button">恢复</button>
+                  </article>
+                ))}
+                {archivePages > 1 ? <div className="activity-memory-archive-pagination">
+                  <button aria-label="上一页归档记忆" className="settings-action settings-secondary-button ghost-button" disabled={archiveLoading || visibleArchivePage === 0} onClick={() => { void loadPage(visibleArchivePage - 1, "archive"); }} type="button">←</button>
+                  <span>{visibleArchivePage + 1} / {archivePages}</span>
+                  <button aria-label="下一页归档记忆" className="settings-action settings-secondary-button ghost-button" disabled={archiveLoading || visibleArchivePage + 1 >= archivePages} onClick={() => { void loadPage(visibleArchivePage + 1, "archive"); }} type="button">→</button>
+                </div> : null}
+              </div>
+              <details className="activity-memory-run-details" open={runsOpen}>
+                <summary className="activity-memory-disclosure" onClick={event => { event.preventDefault(); setRunsOpen(open => !open); }}>
+                  <Icon className="activity-memory-disclosure-chevron" name="chevron" size={12} />
+                  <Icon name="trash" size={12} />
+                  <span>近期运行{runsOpen && !runsLoading && !runsError ? `（${sleepRuns.length}）` : ""}</span>
+                </summary>
+                {runsError ? <p role="alert">{runsError}<button className="settings-action settings-text-action" onClick={() => { void loadRuns(); }} type="button">重试</button></p> : null}
+                {runsLoading ? <p role="status">正在读取运行历史…</p> : <div>{sleepRuns.map((run) => <p key={run.id}>{formatDate(run.startedAt)} · {run.status} · {run.trigger} · {run.archived} archived{run.synthesisFailed > 0 ? ` · ⚠ ${run.synthesisFailed} 合成失败` : ""}</p>)}</div>}
+              </details>
+            </div> : null}
+          </div>
         </section>
 
         {pendingEmbeddingModel ? <SettingsDetailLayer onClose={() => setPendingEmbeddingModel(undefined)}>
@@ -868,8 +1107,8 @@ export function SettingsMemory({
             <h3 id="memory-embedding-change-title">切换嵌入模型？</h3>
             <p id="memory-embedding-change-description">现有记忆会保留，但旧向量不能用于新模型的自动召回。保存设置后需要重建嵌入向量；重建完成前自动召回会暂停。</p>
             <div className="settings-confirm-actions">
-              <button className="ghost-button" onClick={() => setPendingEmbeddingModel(undefined)} type="button">取消</button>
-              <button className="ghost-button" onClick={() => { setMemory({ ...policy, embeddingModel: pendingEmbeddingModel }); setPendingEmbeddingModel(undefined); }} type="button">确认切换</button>
+              <button className="settings-action settings-secondary-button ghost-button" onClick={() => setPendingEmbeddingModel(undefined)} type="button">取消</button>
+              <button className="settings-action settings-secondary-button ghost-button" onClick={() => { setMemory({ ...policy, embeddingModel: pendingEmbeddingModel }); setPendingEmbeddingModel(undefined); }} type="button">确认切换</button>
             </div>
           </section>
         </SettingsDetailLayer> : null}
@@ -883,16 +1122,9 @@ function MemoryState({ title, detail }: { title: string; detail?: string }): Rea
   return <div className="settings-sections"><section><h3>{title}</h3>{detail ? <p>{detail}</p> : null}</section></div>;
 }
 
-function MemoryCheckbox({ checked, detail, label, onChange }: { checked: boolean; detail?: string; label: string; onChange(value: boolean): void }): React.JSX.Element {
-  return <div className="activity-memory-checkbox-row">
-    <label><input checked={checked} onChange={(event) => onChange(event.target.checked)} type="checkbox" /><span>{label}</span></label>
-    {detail ? <p>{detail}</p> : null}
-  </div>;
-}
-
 function MemoryRange({ ariaLabel, description, label, max, maxLabel, min, minLabel, onChange, value, valueLabel }: {
   ariaLabel: string;
-  description: string;
+  description?: string;
   label: string;
   max: number;
   /** 端点说明紧跟滑块展示；不传则不渲染端点行。 */
@@ -905,9 +1137,9 @@ function MemoryRange({ ariaLabel, description, label, max, maxLabel, min, minLab
 }): React.JSX.Element {
   return <div className="activity-memory-range">
     <label htmlFor={`memory-range-${ariaLabel}`}><span>{label} : {valueLabel}</span></label>
-    <input aria-label={ariaLabel} id={`memory-range-${ariaLabel}`} style={rangeProgress(value, min, max)} type="range" min={min} max={max} step={max === 100 ? 1 : 1} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    <input className="settings-range" aria-label={ariaLabel} id={`memory-range-${ariaLabel}`} style={rangeProgress(value, min, max)} type="range" min={min} max={max} step={max === 100 ? 1 : 1} value={value} onChange={(event) => onChange(Number(event.target.value))} />
     {minLabel !== undefined && maxLabel !== undefined ? <div className="activity-memory-range-labels"><span>{minLabel}</span><span>{maxLabel}</span></div> : null}
-    <p>{description}</p>
+    {description ? <p>{description}</p> : null}
   </div>;
 }
 
@@ -921,17 +1153,17 @@ function MemoryNumber({ description, label, max, min, onChange, value }: {
 }): React.JSX.Element {
   return <label className="activity-memory-number-row">
     <span><strong>{label}</strong><small>{description}</small></span>
-    <input aria-label={label} max={max} min={min} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    <input className="settings-field" aria-label={label} max={max} min={min} type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />
   </label>;
 }
 
-function MemoryPagination({ currentPage, onPageChange, totalEntries }: { currentPage: number; onPageChange(page: number): void; totalEntries: number }): React.JSX.Element {
+function MemoryPagination({ currentPage, disabled, onPageChange, totalEntries }: { currentPage: number; disabled: boolean; onPageChange(page: number): void; totalEntries: number }): React.JSX.Element {
   const totalPages = Math.ceil(totalEntries / PAGE_SIZE);
   const rangeStart = currentPage * PAGE_SIZE + 1;
   const rangeEnd = Math.min((currentPage + 1) * PAGE_SIZE, totalEntries);
   return <div className="activity-memory-pagination">
     <span>{rangeStart}-{rangeEnd} of {totalEntries}</span>
-    <div><button className="ghost-button" disabled={currentPage === 0} onClick={() => onPageChange(currentPage - 1)} type="button">←</button><span>{currentPage + 1} / {totalPages}</span><button className="ghost-button" disabled={currentPage + 1 >= totalPages} onClick={() => onPageChange(currentPage + 1)} type="button">→</button></div>
+    <div><button className="settings-action settings-secondary-button ghost-button" disabled={disabled || currentPage === 0} onClick={() => onPageChange(currentPage - 1)} type="button">←</button><span>{currentPage + 1} / {totalPages}</span><button className="settings-action settings-secondary-button ghost-button" disabled={disabled || currentPage + 1 >= totalPages} onClick={() => onPageChange(currentPage + 1)} type="button">→</button></div>
   </div>;
 }
 

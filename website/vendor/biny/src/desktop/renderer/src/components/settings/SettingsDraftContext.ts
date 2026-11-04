@@ -1,6 +1,5 @@
 /** 设置草稿 Provider 与各分页共享的纯上下文契约。 */
 import { createContext, useContext } from "react";
-import type { AppearancePreference } from "../../../../../appearance/types.js";
 import type { ThinkingSelection } from "../../../../../llm/ModelManager.js";
 import type { ModelProfile } from "../../../../../config/schema.js";
 import type {
@@ -21,7 +20,8 @@ import type {
   DesktopSkillSettingsInput,
   DesktopStagedSettingsCredential,
   DesktopThemePreference,
-  DesktopWebSearchSettingsInput
+  DesktopWebSearchSettingsInput,
+  DesktopRedactionSettingsInput
 } from "../../../../protocol.js";
 
 export type SettingsSaveState = "clean" | "dirty" | "invalid" | "saving" | "rolling_back" | "recovery_required";
@@ -37,15 +37,15 @@ export interface SettingsModelDraft {
 export interface DesktopSettingsDraft {
   themePreference: DesktopThemePreference;
   fontPreference: DesktopFontPreference;
-  appearancePreference: AppearancePreference;
   activity: DesktopActivitySettingsInput;
   identity: DesktopIdentitySettings;
   memory: DesktopMemorySettings;
   compaction: DesktopCompactionSettings;
   chatParams: DesktopChatParamsSettings;
-  toolExecutionMode: DesktopSettingsSnapshot["toolExecutionMode"];
+  subagent: DesktopSettingsSnapshot["subagent"];
   permission: DesktopPermissionSettings;
   webSearch: DesktopWebSearchSettingsInput;
+  redaction: DesktopRedactionSettingsInput;
   chat?: DesktopChatPersonalizationOverride;
   models: SettingsModelDraft;
   skills: DesktopSkillSettingsInput;
@@ -67,21 +67,25 @@ export interface SettingsDraftContextValue {
   saveError?: string;
   dirtyCount: number;
   preferencesOnly: boolean;
+  runtimeBlocked: boolean;
   invalid: boolean;
   saveState: SettingsSaveState;
+  manualSaving: boolean;
+  /** 当前只在保存工具/视觉选择，其它设置仍可编辑。 */
+  modelSelectionSaving?: boolean;
   pendingModelEdits?: boolean;
   reportModelEditState?(pending: boolean): void;
   setThemePreference(value: DesktopThemePreference): void;
   setFontPreference(value: DesktopFontPreference): void;
-  setAppearancePreference(value: AppearancePreference): Promise<boolean>;
   updateActivityImmediately(patch: DesktopActivitySettingsPatch): Promise<void>;
   setIdentity(value: DesktopIdentitySettings): void;
   setMemory(value: DesktopMemorySettings): void;
   setCompaction(value: DesktopCompactionSettings): void;
   setChatParams(value: DesktopChatParamsSettings): void;
-  setToolExecutionMode(value: DesktopSettingsSnapshot["toolExecutionMode"]): void;
+  setSubagent(value: DesktopSettingsSnapshot["subagent"]): void;
   setPermission(value: DesktopPermissionSettings): void;
   setWebSearch(value: DesktopWebSearchSettingsInput): void;
+  setRedaction(value: DesktopRedactionSettingsInput): void;
   setChat(value: DesktopChatPersonalizationOverride): void;
   setSkills(value: DesktopSkillSettingsInput): void;
   upsertModel(value: DesktopModelConfigurationInput): void;

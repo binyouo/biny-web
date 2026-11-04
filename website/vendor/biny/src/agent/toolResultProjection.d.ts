@@ -15,6 +15,8 @@ export interface ToolResultProjectionOptions {
     thresholdBytes?: number;
     /** 最近结果保留正文；shell 结果始终遵守独立的模型输出字节上限。 */
     keepRecentResults?: number;
+    /** 请求中保留的工具正文预算；最近结果批次与无法安全归档的结果仍保留。 */
+    maxRetainedBytes?: number;
     archiveResult?: (request: ToolResultProjectionArchiveRequest) => Promise<ToolResultProjectionArchiveReference>;
     /** 单结果调用时用于生成稳定的归档信封；批量消息投影会直接读取消息上的这些值。 */
     toolCallId?: string;
@@ -34,3 +36,8 @@ export declare function projectSingleToolResultForModel(toolName: string, args: 
  * 并行工具结果不会相互覆盖。未知工具没有可证明的语义关系，只做完全重复去重。
  */
 export declare function projectToolResultsForModel(messages: AgentMessage[], options?: ToolResultProjectionOptions): Promise<AgentMessage[]>;
+/** Actual returned Read bounds, including an empty page (end = start - 1). */
+export declare function readResultLineRange(value: unknown): {
+    startLine: number;
+    endLine: number;
+} | undefined;

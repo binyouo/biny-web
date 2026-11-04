@@ -1,4 +1,5 @@
 import type { AgentAssistantMessage, AgentMessage, AgentToolResult, AgentLoopTurnContext, AgentUsage, ModelRequestContext, ModelRequestMetrics, ModelRequestObserver } from "../agent/core/types.js";
+import { type SessionEvent } from "../session/events.js";
 import { SessionRecorder } from "../session/recorder.js";
 import type { RuntimeEventSink } from "../session/runtimeEvent.js";
 import { type ToolRetrySafety } from "../tools/types.js";
@@ -18,26 +19,26 @@ export declare function readWorkerSessionCheckpoint(persistenceRoot: string, tas
     checkpoint: import("../session/turnStore.js").InterruptedTurn;
     facts: {
         version: 1;
-        status: "running" | "completed";
+        taskId: string;
         workspaceRoot: string;
         policy: string;
-        taskId: string;
         startedSteps: number;
         usages: {
             inputTokens?: number | undefined;
-            cacheReadTokens?: number | undefined;
             outputTokens?: number | undefined;
             totalTokens?: number | undefined;
             reasoningTokens?: number | undefined;
+            cacheReadTokens?: number | undefined;
             cacheWriteTokens?: number | undefined;
             cacheMissTokens?: number | undefined;
         }[];
-        output?: string | undefined;
+        status: "completed" | "running";
         parentSessionId?: string | undefined;
         parentRunId?: string | undefined;
         sessionGoalId?: string | undefined;
+        output?: string | undefined;
     };
-    events: import("../session/recorder.js").SessionEvent[];
+    events: SessionEvent[];
     replay: import("../session/replay.js").SessionReplay;
 }>;
 export declare class WorkerSession {

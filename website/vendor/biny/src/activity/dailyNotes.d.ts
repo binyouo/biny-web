@@ -19,8 +19,16 @@ export declare function readDailyMemoryNote(dateKey: string, options?: {
 }): Promise<string | undefined>;
 /** 从一份日报中读取指定二级 section；用于汇总时隔离聊天与 Activity 来源。 */
 export declare function readDailyMemorySection(content: string, sectionTitle: string): string | undefined;
-/** 替换指定 section，供 Activity 这类可整体重建的派生来源使用。 */
-export declare function upsertDailyMemorySection(dateKey: string, sectionTitle: string, content: string, options?: DailyNoteWriteOptions): Promise<string>;
+export declare class DailyMemorySectionConflictError extends Error {
+    readonly name = "DailyMemorySectionConflictError";
+    constructor();
+}
+/** 替换指定 section；提供快照时在文件锁内比较，避免覆盖其他刷新已提交的正文。 */
+export declare function upsertDailyMemorySection(dateKey: string, sectionTitle: string, content: string, options?: DailyNoteWriteOptions & {
+    expectedSectionContent?: string;
+}): Promise<string>;
+/** writer 和补写预筛共享同一 marker，保持既有条目的去重身份不变。 */
+export declare function dailyMemoryEntryMarker(entryKey: string): string;
 /** 追加一个可幂等识别的聊天摘要条目；同一 turn 重试不会重复污染日报。 */
 export declare function appendDailyMemoryEntry(dateKey: string, sectionTitle: string, entryKey: string, content: string, options?: {
     configDir?: string;

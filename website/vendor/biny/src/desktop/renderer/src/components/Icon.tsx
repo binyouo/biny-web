@@ -20,7 +20,6 @@ export type IconName =
   | "bell"
   | "branch"
   | "brain"
-  | "brain-off"
   | "brain-spark"
   | "calendar"
   | "chart"
@@ -43,6 +42,13 @@ export type IconName =
   | "database"
   | "diff"
   | "display"
+  | "hand"
+  | "crop"
+  | "undo"
+  | "redo"
+  | "zoom-in"
+  | "zoom-out"
+  | "image"
   | "camera"
   | "monitor"
   | "computer-history"
@@ -73,6 +79,8 @@ export type IconName =
   | "layout-grid"
   | "layout-list"
   | "menu"
+  | "memory"
+  | "memory-off"
   | "message"
   | "mic"
   | "minus"
@@ -83,9 +91,11 @@ export type IconName =
   | "panel-right"
   | "pin"
   | "person"
+  | "phone"
   | "plug"
   | "power"
   | "puzzle"
+  | "qr"
   | "quote"
   | "pull-request"
   | "refresh"
@@ -158,8 +168,15 @@ function pathFor(name: IconName): React.JSX.Element {
     case "bell": return <><path {...common} d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" /><path {...common} d="M10 21h4" /></>;
     case "branch": return <><circle {...common} cx="7" cy="5" r="2" /><circle {...common} cx="17" cy="19" r="2" /><path {...common} d="M7 7v5c0 3.9 3.1 7 7 7h1M17 5v4c0 2.2-1.8 4-4 4H7" /></>;
     case "brain": return <path {...common} d="M12 4.5C14.5 3.3 17 4.4 17.2 7C19.6 7.4 20.8 10.2 19.5 12.1C20.9 14 20 16.8 17.4 17C17 19.2 14.2 20.4 12 19.3C9.8 20.4 7 19.2 6.6 17C4 16.8 3.1 14 4.5 12.1C3.2 10.2 4.4 7.4 6.8 7C7 4.4 9.5 3.3 12 4.5ZM12 4.5V19.3M12 12c1.6 0 2.8-.9 3.2-2.4M12 12c-1.6 0-2.8-.9-3.2-2.4" />;
-    // 记忆开关专用：斜杠脑=关闭（对应规范「斜杠表示关闭/隐私保护」），缩小的脑+右上星星=开启（星星代表已启用）。
-    case "brain-off": return <><path {...common} d="M12 4.5C14.5 3.3 17 4.4 17.2 7C19.6 7.4 20.8 10.2 19.5 12.1C20.9 14 20 16.8 17.4 17C17 19.2 14.2 20.4 12 19.3C9.8 20.4 7 19.2 6.6 17C4 16.8 3.1 14 4.5 12.1C3.2 10.2 4.4 7.4 6.8 7C7 4.4 9.5 3.3 12 4.5ZM12 4.5V19.3M12 12c1.6 0 2.8-.9 3.2-2.4M12 12c-1.6 0-2.8-.9-3.2-2.4" /><path {...common} d="m4.5 4.5 15 15" /></>;
+    case "memory":
+    case "memory-off": return (
+      <>
+        {/* 两瓣脑轮廓加中缝；关闭态叠加一条加粗斜线，不再用脑内填充、连接点和小圆点区分开关。 */}
+        <path {...common} d="M9.7 4.2a2.6 2.6 0 0 0-2.3 2.5 3.4 3.4 0 0 0-2.9 3.4c0 .6.15 1.1.4 1.6a3.4 3.4 0 0 0 .5 5.4 2.7 2.7 0 0 0 5.1 1.1v-14" />
+        <path {...common} d="M14.3 4.2a2.6 2.6 0 0 1 2.3 2.5 3.4 3.4 0 0 1 2.9 3.4c0 .6-.15 1.1-.4 1.6a3.4 3.4 0 0 1-.5 5.4 2.7 2.7 0 0 1-5.1 1.1v-14" />
+        {name === "memory-off" ? <path {...common} strokeWidth={2} d="m5 5 14 14" /> : null}
+      </>
+    );
     case "brain-spark": return <><g {...common} transform="translate(-1 3) scale(0.85)"><path d="M12 4.5C14.5 3.3 17 4.4 17.2 7C19.6 7.4 20.8 10.2 19.5 12.1C20.9 14 20 16.8 17.4 17C17 19.2 14.2 20.4 12 19.3C9.8 20.4 7 19.2 6.6 17C4 16.8 3.1 14 4.5 12.1C3.2 10.2 4.4 7.4 6.8 7C7 4.4 9.5 3.3 12 4.5ZM12 4.5V19.3M12 12c1.6 0 2.8-.9 3.2-2.4M12 12c-1.6 0-2.8-.9-3.2-2.4" /></g><path {...common} d="M18.5 2c.4 2.1 1.4 3.1 3.5 3.5-2.1.4-3.1 1.4-3.5 3.5-.4-2.1-1.4-3.1-3.5-3.5 2.1-.4 3.1-1.4 3.5-3.5Z" /></>;
     case "calendar": return <><rect {...common} height="16" rx="2" width="16" x="4" y="5" /><path {...common} d="M8 3v4M16 3v4M4 10h16M8 14h3" /></>;
     case "chart": return <><path {...common} d="M4 20V5M4 20h17" /><path {...common} d="M8 17v-5M12 17V7M16 17v-8" /></>;
@@ -185,8 +202,15 @@ function pathFor(name: IconName): React.JSX.Element {
     case "database": return <><ellipse {...common} cx="12" cy="5.5" rx="7.5" ry="2.8" /><path {...common} d="M4.5 5.5v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V5.5M4.5 12v6.5c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V12" /></>;
     case "diff": return <><path {...common} d="M7 4v16M17 4v16M4 8h6M14 16h6" /><path {...common} d="m17 6 2 2-2 2M17 14l-2 2 2 2" /></>;
     case "display": return <><rect {...common} height="13" rx="2" width="18" x="3" y="4" /><path {...common} d="M9 21h6M12 17v4" /></>;
-    // 显示器 + 指针：Computer Use 的桌面操控语义，和外框式的 display 区分开。
+    case "hand": return <><path {...common} d="M8 13V5a2 2 0 0 1 4 0v7-9a2 2 0 0 1 4 0v9-7a2 2 0 0 1 4 0v10c0 4-3 7-7 7h-1c-2 0-3.5-1-5-3l-4-5a2 2 0 0 1 3-3l2 2Z" /></>;
+    case "crop": return <path {...common} d="M6 3v13a2 2 0 0 0 2 2h13M3 6h13a2 2 0 0 1 2 2v13" />;
+    case "undo": return <path {...common} d="M9 5 4 10l5 5M4 10h10a6 6 0 0 1 0 12" />;
+    case "redo": return <path {...common} d="m15 5 5 5-5 5M20 10H10a6 6 0 0 0 0 12" />;
+    case "zoom-in": return <><circle {...common} cx="10" cy="10" r="7" /><path {...common} d="m15 15 6 6M7 10h6M10 7v6" /></>;
+    case "zoom-out": return <><circle {...common} cx="10" cy="10" r="7" /><path {...common} d="m15 15 6 6M7 10h6" /></>;
+    case "image": return <><rect {...common} x="3" y="3" width="18" height="18" rx="2" /><circle {...common} cx="8" cy="8" r="2" /><path {...common} d="m3 17 5-5 4 4 4-6 5 7" /></>;
     case "camera": return <><rect {...common} height="14" rx="2" width="19" x="2.5" y="6" /><path {...common} d="M8.5 6 10 3.5h4L15.5 6" /><circle {...common} cx="12" cy="13" r="3.6" /></>;
+    // 显示器 + 指针：Computer Use 的桌面操控语义，和外框式的 display 区分开。
     case "monitor": return <><rect {...common} height="12" rx="2" width="18" x="3" y="5" /><path {...common} d="M12 17v4M9 21h6" /><path {...common} d="m10 9 2 2 2.6-1.3L16 14l-4.6 2.6L10 12z" /></>;
     // 显示器外框 + 屏幕内的时钟指针：Computer History（屏幕/输入回溯）。
     // 与 display（纯显示器）、monitor（显示器 + 指针）区分：这个图标里屏幕是时钟表盘。
@@ -227,9 +251,11 @@ function pathFor(name: IconName): React.JSX.Element {
     // 16px 小尺寸下仍清晰；置顶态用 is-active 强调色区分。
     case "pin": return <path d="M12.864 3.26a3.01 3.01 0 0 1 4.576-.378l3.678 3.678a3.01 3.01 0 0 1-.378 4.576l-4.261 3.044c-.315.225-.479.55-.479.82v2.5c0 1.407-.96 2.451-2.024 2.91-1.071.462-2.497.437-3.52-.586l-2.433-2.433-4.316 4.316a1 1 0 1 1-1.414-1.414l4.316-4.316-2.433-2.434c-1.023-1.022-1.048-2.447-.586-3.519C4.049 8.959 5.093 8 6.5 8H9c.27 0 .595-.164.82-.479z" fill="currentColor" />;
     case "person": return <><circle {...common} cx="12" cy="8" r="5" /><path {...common} d="M20 21a8 8 0 0 0-16 0" /></>;
+    case "phone": return <><rect {...common} height="20" rx="2" width="14" x="5" y="2" /><path {...common} d="M12 18h.01" /></>;
     case "plug": return <><path {...common} d="M12 22v-5" /><path {...common} d="M15 8V2" /><path {...common} d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z" /><path {...common} d="M9 8V2" /></>;
     case "power": return <><path {...common} d="M12 2v10" /><path {...common} d="M18.4 6.6a9 9 0 1 1-12.8 0" /></>;
     case "puzzle": return <path {...common} d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" />;
+    case "qr": return <><rect {...common} height="5" rx="1" width="5" x="3" y="3" /><rect {...common} height="5" rx="1" width="5" x="16" y="3" /><rect {...common} height="5" rx="1" width="5" x="3" y="16" /><path {...common} d="M21 16h-3a2 2 0 0 0-2 2v3M21 21v.01M12 7v3a2 2 0 0 1-2 2H7M3 12h.01M12 3h.01M12 16v.01M16 12h1M21 12v.01M12 21v-1" /></>;
     case "quote": return <><path {...common} d="M3 11h6v7H2v-5c0-4.2 1.8-6.5 5.5-7.5M15 11h6v7h-7v-5c0-4.2 1.8-6.5 5.5-7.5" /></>;
     case "pull-request": return <><circle {...common} cx="7" cy="5" r="2" /><circle {...common} cx="7" cy="19" r="2" /><circle {...common} cx="17" cy="19" r="2" /><path {...common} d="M7 7v10M14 5h1a2 2 0 0 1 2 2v10M14 2l-3 3 3 3" /></>;
     case "refresh": return <><path {...common} d="M21 12a9 9 0 1 1-2.636-6.364L21 8" /><path {...common} d="M21 3v5h-5" /></>;

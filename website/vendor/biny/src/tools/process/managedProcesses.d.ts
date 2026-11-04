@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { ManagedProcessService, type ManagedProcessOutput, type ManagedProcessSnapshot } from "../../runtime/ManagedProcessService.js";
 import type { Tool } from "../types.js";
-export interface BashOutputArgs {
+export interface ProcessStatusArgs {
     /** 省略时列出当前 runtime 记录的后台 Shell。 */
     processId?: string;
     includeExited?: boolean;
@@ -15,7 +15,7 @@ export interface BashOutputArgs {
     maxBytes?: number;
     fromEnd?: boolean;
 }
-export interface BashOutputResult {
+export interface ProcessStatusResult {
     processes?: ManagedProcessSnapshot[];
     process?: ManagedProcessSnapshot;
     output?: ManagedProcessOutput;
@@ -24,97 +24,25 @@ export interface KillShellArgs {
     processId: string;
     reason?: string;
 }
-export declare const managedProcessReadinessSchema: z.ZodEffects<z.ZodDiscriminatedUnion<"type", [z.ZodObject<{
+export declare const managedProcessReadinessSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     type: z.ZodLiteral<"http">;
     url: z.ZodString;
     expectedStatus: z.ZodOptional<z.ZodNumber>;
     timeoutMs: z.ZodOptional<z.ZodNumber>;
     intervalMs: z.ZodOptional<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    type: "http";
-    url: string;
-    timeoutMs?: number | undefined;
-    expectedStatus?: number | undefined;
-    intervalMs?: number | undefined;
-}, {
-    type: "http";
-    url: string;
-    timeoutMs?: number | undefined;
-    expectedStatus?: number | undefined;
-    intervalMs?: number | undefined;
-}>, z.ZodObject<{
+}, z.core.$strip>, z.ZodObject<{
     type: z.ZodLiteral<"tcp">;
     host: z.ZodString;
     port: z.ZodNumber;
     timeoutMs: z.ZodOptional<z.ZodNumber>;
     intervalMs: z.ZodOptional<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    type: "tcp";
-    host: string;
-    port: number;
-    timeoutMs?: number | undefined;
-    intervalMs?: number | undefined;
-}, {
-    type: "tcp";
-    host: string;
-    port: number;
-    timeoutMs?: number | undefined;
-    intervalMs?: number | undefined;
-}>, z.ZodObject<{
+}, z.core.$strip>, z.ZodObject<{
     type: z.ZodLiteral<"log">;
     pattern: z.ZodString;
     regex: z.ZodOptional<z.ZodBoolean>;
     timeoutMs: z.ZodOptional<z.ZodNumber>;
     intervalMs: z.ZodOptional<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    type: "log";
-    pattern: string;
-    timeoutMs?: number | undefined;
-    regex?: boolean | undefined;
-    intervalMs?: number | undefined;
-}, {
-    type: "log";
-    pattern: string;
-    timeoutMs?: number | undefined;
-    regex?: boolean | undefined;
-    intervalMs?: number | undefined;
-}>]>, {
-    type: "http";
-    url: string;
-    timeoutMs?: number | undefined;
-    expectedStatus?: number | undefined;
-    intervalMs?: number | undefined;
-} | {
-    type: "tcp";
-    host: string;
-    port: number;
-    timeoutMs?: number | undefined;
-    intervalMs?: number | undefined;
-} | {
-    type: "log";
-    pattern: string;
-    timeoutMs?: number | undefined;
-    regex?: boolean | undefined;
-    intervalMs?: number | undefined;
-}, {
-    type: "http";
-    url: string;
-    timeoutMs?: number | undefined;
-    expectedStatus?: number | undefined;
-    intervalMs?: number | undefined;
-} | {
-    type: "tcp";
-    host: string;
-    port: number;
-    timeoutMs?: number | undefined;
-    intervalMs?: number | undefined;
-} | {
-    type: "log";
-    pattern: string;
-    timeoutMs?: number | undefined;
-    regex?: boolean | undefined;
-    intervalMs?: number | undefined;
-}>;
+}, z.core.$strip>], "type">;
 export declare const managedProcessReadinessParameters: {
     type: "object";
     properties: {
@@ -168,5 +96,5 @@ export declare const managedProcessReadinessParameters: {
     description: string;
 };
 export declare function createManagedProcessTools(service: ManagedProcessService): Array<Tool<unknown, unknown>>;
-export declare function createBashOutputTool(service: ManagedProcessService): Tool<BashOutputArgs, BashOutputResult>;
+export declare function createProcessStatusTool(service: ManagedProcessService): Tool<ProcessStatusArgs, ProcessStatusResult>;
 export declare function createKillShellTool(service: ManagedProcessService): Tool<KillShellArgs, ManagedProcessSnapshot>;

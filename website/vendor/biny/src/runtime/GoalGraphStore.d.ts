@@ -3,10 +3,8 @@ import type { CommandRuntime } from "./CommandRuntime.js";
 import type { RuntimeEventAuthority } from "./RuntimeAuthority.js";
 import { type DurableTaskRunStore } from "./TaskRunStore.js";
 import { type TaskClosureResult } from "./TaskClosure.js";
-import { type TaskCommandExecutor } from "./taskVerification.js";
 export type GraphStatus = "draft" | "running" | "paused" | "completed" | "failed" | "blocked" | "cancelled";
 export type GraphNodeStatus = "pending" | "ready" | "running" | "completed" | "failed" | "blocked" | "cancelled";
-export type GraphMode = "fixed" | "supervised";
 export type SupervisorCheckpoint = "needs_attention" | "settled";
 export interface GraphNodeInput {
     nodeKey: string;
@@ -31,8 +29,8 @@ export interface GraphRecord {
     graphId: string;
     workspaceId: string;
     status: GraphStatus;
-    mode: GraphMode;
-    supervisorSessionId?: string;
+    mode: "supervised";
+    supervisorSessionId: string;
     maxReplans: number;
     replanCount: number;
     revision: number;
@@ -80,7 +78,6 @@ export declare class GoalGraphStore {
     subscribe(listener: () => void): () => void;
     private constructor();
     static open(persistenceRoot: string, authority: RuntimeEventAuthority): Promise<GoalGraphStore>;
-    createGraph(nodes: readonly GraphNodeInput[], payload?: unknown, graphId?: string): GraphRecord;
     createSupervisedGraph(input: SupervisedGraphInput): GraphRecord;
     private createGraphRecord;
     getGraph(graphId: string): GraphRecord | undefined;
@@ -110,7 +107,7 @@ export declare class GoalGraphStore {
     /** task.approve 复用 TaskRun 闭环后，由 Graph 自己补齐唯一的节点投影。 */
     projectTaskClosure(taskRunId: string, result: TaskClosureResult): GraphRecord | undefined;
     /** Host 启动时回收上一个进程留下的 running claim，避免 Graph 永久停滞。 */
-    recoverRunningNodes(taskRuns?: DurableTaskRunStore): void;
+    recoverRunningNodes(taskRuns: DurableTaskRunStore): void;
     noteSupervisorCheckpoint(graphId: string, checkpoint: SupervisorCheckpoint): GraphRecord;
     createWake(graphId: string, reason: string): string;
     claimWake(graphId: string): string | undefined;
@@ -126,7 +123,6 @@ export declare class GoalGraphStore {
     }): ReturnType<RuntimeEventAuthority["readEvents"]>;
     close(): void;
     private updateGraph;
-    private projectGraphStatus;
     /** 把 running 节点退回 ready/blocked 并放弃当前 claim；Host 重启回收与 supervisor 的 busy 重试共用。 */
     recoverNode(graphId: string, nodeId: string, status: "ready" | "blocked", reason: string, taskRunId?: string): GraphRecord;
     private nodes;
@@ -143,17 +139,10 @@ export declare class GoalGraphStore {
 }
 export interface GraphSupervisorOptions {
     onActivity?(): void;
-    store?: GoalGraphStore;
-    getStore?: () => GoalGraphStore;
-    runtime?: InteractiveRuntimeHandle;
-    getRuntime?: () => InteractiveRuntimeHandle;
-    taskRuns?: DurableTaskRunStore;
-    getTaskRuns?: () => DurableTaskRunStore | undefined;
-    getTaskCommandExecutor?: () => TaskCommandExecutor | undefined;
-    getWorkspaceRoot?: () => string;
-    getWorkspaceIgnore?: () => readonly string[];
-    resolveSupervisorRuntime?: (sessionId: string) => Promise<InteractiveRuntimeHandle>;
-    resolveSupervisorCommands?: (sessionId: string) => Promise<CommandRuntime>;
+    getStore(): GoalGraphStore;
+    getTaskRuns(): DurableTaskRunStore;
+    resolveSupervisorRuntime(sessionId: string): Promise<InteractiveRuntimeHandle>;
+    resolveSupervisorCommands(sessionId: string): Promise<CommandRuntime>;
     supervisorSessionExists?: (sessionId: string) => Promise<boolean>;
 }
 export declare class GraphSupervisor {
@@ -173,9 +162,4 @@ export declare class GraphSupervisor {
     private scan;
     private executeSupervisorWake;
     private executeNode;
-    private transitionTask;
-    private runtime;
-    private supervisorRuntime;
-    private store;
-    private taskRuns;
 }

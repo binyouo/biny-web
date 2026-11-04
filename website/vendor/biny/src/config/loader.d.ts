@@ -1,4 +1,5 @@
 import { type AgentConfig } from "./schema.js";
+import { type ProjectSettings } from "./projectSettings.js";
 export declare const CONFIG_FILE = "config.json";
 export declare const maxConfigFileBytes: number;
 export interface ConfigPathOptions {
@@ -7,6 +8,7 @@ export interface ConfigPathOptions {
 }
 /** 加载全局配置，再叠加当前项目的运行参数覆盖。 */
 export declare function loadConfig(workspaceRoot: string, options?: ConfigPathOptions): Promise<AgentConfig>;
+export declare function applyProjectSettings(globalConfig: AgentConfig, projectSettings: ProjectSettings): AgentConfig;
 /** 只读取全局配置，不读取项目覆盖；供保存配置时保持全局字段的原始值。 */
 export declare function loadGlobalConfig(options?: ConfigPathOptions): Promise<AgentConfig>;
 /** 从指定的全局配置目录读取当前格式，测试和桌面端可显式传入隔离目录。 */

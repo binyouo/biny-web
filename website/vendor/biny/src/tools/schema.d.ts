@@ -19,6 +19,7 @@ export interface JsonObjectSchema {
     required?: string[];
     additionalProperties?: boolean;
     description?: string;
+    anyOf?: JsonSchema[];
 }
 export interface JsonStringSchema {
     type: "string";
@@ -26,6 +27,7 @@ export interface JsonStringSchema {
     minLength?: number;
     maxLength?: number;
     enum?: string[];
+    const?: string;
 }
 export interface JsonNumberSchema {
     type: "number" | "integer";

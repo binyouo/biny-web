@@ -1,6 +1,6 @@
 import type { AgentConfig } from "../config/schema.js";
 import { type DateReferenceRange } from "./dateReference.js";
-export type LocalReferenceKind = "date" | "project" | "file" | "thread" | "message" | "memory" | "snippet" | "scratch" | "skill" | "agent" | "mcp" | "model" | "provider" | "tool" | "tool-call" | "task" | "cron" | "crystal" | "bundle" | "plan";
+export type LocalReferenceKind = "date" | "project" | "file" | "thread" | "message" | "memory" | "snippet" | "scratch" | "skill" | "agent" | "mcp" | "model" | "provider" | "tool" | "tool-call" | "task" | "cron" | "plan";
 export type ParsedLocalReference = {
     kind: "date";
     range: DateReferenceRange;

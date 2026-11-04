@@ -9,6 +9,7 @@ import {
 } from "../../../../filePanelSizing.js";
 import type { TimelineTool } from "../../sessionTimeline.js";
 import type { SessionFileChange } from "../../sessionChanges.js";
+import { invalidateInlineImage } from "../../inlineImage.js";
 import type { LocalReferenceResult } from "../../../../../session/localReferences.js";
 import { WorkspaceBrowserPanel } from "./WorkspaceBrowserPanel.js";
 import { WorkspaceCommitPanel } from "./WorkspaceCommitPanel.js";
@@ -18,7 +19,8 @@ import { Icon, type IconName } from "../Icon.js";
 import { TerminalView } from "../TerminalView.js";
 import { FilePreviewPanel, type FileDirectoryState, type FilePreviewState } from "./FilePreviewPanel.js";
 import { SessionChangesPanel } from "./SessionChangesPanel.js";
-import { WorkspaceToolsPanel } from "./WorkspaceUtilityPanels.js";
+import { WorkspaceToolsPanel } from "./WorkspaceToolsPanel.js";
+import type { SkillActivity } from "../../skillActivity.js";
 import { RenderingPreviewPanel } from "./RenderingPreviewPanel.js";
 import type { RenderingPreview } from "../RenderingPreviewContext.js";
 
@@ -26,6 +28,7 @@ interface UseWorkspaceInspectorOptions {
   /** 当前会话 Agent 改过的文件（「变更」视图数据 + tab/rail 徽标计数）。 */
   changes: SessionFileChange[];
   tools: TimelineTool[];
+  skills: SkillActivity[];
   filePanelResizing: boolean;
   filePanelWidth: number;
   /** 左栏目标占位宽度；动画中的每帧宽度不得回传为 React 状态。 */
@@ -44,6 +47,19 @@ interface UseWorkspaceInspectorOptions {
   onReadFile(path: string): Promise<DesktopWorkspaceFilePreview>;
   /** rail 动作（浏览器打开等）失败的提示通道。 */
   onWarning(message: string): void;
+}
+
+interface FilePreviewReservation {
+  current(): boolean;
+  open(path: string): void;
+  cancel(): void;
+}
+interface PendingFileReference extends FilePreviewReservation {
+  request: number;
+  projectId: string;
+  source: string;
+  transferred: boolean;
+  path?: string;
 }
 
 type InspectorView = "files" | "changes" | "commit" | "terminal" | "browser" | "tools" | "references" | "rendering";
@@ -67,6 +83,7 @@ const defaultInspectorViews = (Object.keys(inspectorViewMetadata) as InspectorVi
 export function useWorkspaceInspector({
   changes,
   tools,
+  skills,
   filePanelResizing,
   filePanelWidth,
   sidebarFlowWidth = 0,
@@ -97,11 +114,25 @@ export function useWorkspaceInspector({
   openFiles(): void;
   showBrowser(): void;
   previewFile(path: string): void;
+  reserveFilePreview(target: { projectId: string; source: string }, isCurrent: () => boolean): FilePreviewReservation;
   previewReference(reference: LocalReferenceResult): void;
   previewRendering(preview: RenderingPreview): void;
   toggleTerminal(): void;
 } {
   const previewRequestRef = useRef(0);
+  const pendingFileReferenceRef = useRef<PendingFileReference>(undefined);
+  const currentPreviewFileRef = useRef<(path: string, refresh?: boolean, isCurrent?: () => boolean) => void>(undefined);
+  const cancelFileReference = useCallback((): void => {
+    if (!pendingFileReferenceRef.current) return;
+    pendingFileReferenceRef.current = undefined;
+    previewRequestRef.current += 1;
+  }, []);
+  useLayoutEffect(() => () => {
+    cancelFileReference();
+    previewRequestRef.current += 1;
+    currentPreviewFileRef.current = undefined;
+  }, [cancelFileReference]);
+  const previewSelectionRef = useRef<{ source: string; projectId?: string; path: string; failed: boolean; pending: boolean; current(): boolean; change?: SessionFileChange } | undefined>(undefined);
   const directoryRequestIdRef = useRef(0);
   const directoryRequestRef = useRef(new Map<string, number>());
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -164,7 +195,13 @@ export function useWorkspaceInspector({
     previousSource.current = { source, projectId };
     const projectChanged = previous.projectId !== projectId;
     if (projectChanged) { setPinned(false); setGitChangeCount(undefined); }
+    const pending = pendingFileReferenceRef.current;
+    // Only this intent's expected project/draft transition may carry its lookup forward.
+    const transfer = pending?.current() && !pending.transferred && pending.source === source && pending.projectId === projectId;
     previewRequestRef.current += 1;
+    if (transfer && pending) { pending.request = previewRequestRef.current; pending.transferred = true; }
+    else pendingFileReferenceRef.current = undefined;
+    previewSelectionRef.current = undefined;
     directoryRequestIdRef.current += 1;
     directoryRequestRef.current.clear();
     if (projectChanged || !pinned || renderingView) setInspectorOpen(false);
@@ -186,6 +223,7 @@ export function useWorkspaceInspector({
 
   const loadDirectory = useCallback((relativePath: string): void => {
     const normalizedPath = normalizeWorkspacePath(relativePath);
+    if (directoryRequestRef.current.has(normalizedPath)) return;
     const requestId = directoryRequestIdRef.current + 1;
     directoryRequestIdRef.current = requestId;
     directoryRequestRef.current.set(normalizedPath, requestId);
@@ -208,16 +246,21 @@ export function useWorkspaceInspector({
         next.set(normalizedPath, { status: "error", error: errorMessage(error) });
         return next;
       });
+    }).finally(() => {
+      if (directoryRequestRef.current.get(normalizedPath) === requestId) directoryRequestRef.current.delete(normalizedPath);
     });
   }, [onListDirectory]);
 
+  const closeInspector = useCallback((): void => { cancelFileReference(); setInspectorOpen(false); }, [cancelFileReference]);
+
   const openInspector = useCallback((view: InspectorView): void => {
     if (!projectId) return;
+    cancelFileReference();
     setInspectorView(view);
     setVisitedViews((current) => new Set(current).add(view));
     setInspectorOpen(true);
     if (view === "files" && !directoryStates.has(".")) loadDirectory(".");
-  }, [directoryStates, loadDirectory, projectId]);
+  }, [cancelFileReference, directoryStates, loadDirectory, projectId]);
 
   const openFiles = useCallback((): void => {
     openInspector("files");
@@ -246,7 +289,7 @@ export function useWorkspaceInspector({
     if (!previews.length) {
       setRendering(undefined);
       setRenderingExpanded(false);
-      setInspectorOpen(false);
+      closeInspector();
       return;
     }
     setRendering({ ...activeRendering, previews, activeId: activeRendering.activeId === id ? previews[0]!.id : activeRendering.activeId });
@@ -254,34 +297,76 @@ export function useWorkspaceInspector({
 
   const toggleTerminal = useCallback((): void => {
     if (inspectorOpen && inspectorView === "terminal") {
-      setInspectorOpen(false);
+      closeInspector();
       return;
     }
     openInspector("terminal");
-  }, [inspectorOpen, inspectorView, openInspector]);
+  }, [closeInspector, inspectorOpen, inspectorView, openInspector]);
 
-  const previewFile = useCallback((path: string): void => {
-    const request = previewRequestRef.current + 1;
-    previewRequestRef.current = request;
+  const previewFile = useCallback((path: string, refresh = false, isCurrent = (): boolean => true): void => {
+    cancelFileReference();
     setInspectorView("files");
     setVisitedViews((current) => new Set(current).add("files"));
     setInspectorOpen(true);
+    const previous = previewSelectionRef.current;
+    const change = changes.find(entry => entry.path === path);
+    const sameChange = previous?.change?.changeCount === change?.changeCount && previous?.change?.diff === change?.diff && previous?.change?.status === change?.status;
+    if (previous?.source === source && previous.projectId === projectId && previous.path === path && previous.current() && !previous.failed && sameChange && (previous.pending || !refresh)) { previous.current = isCurrent; return; }
+    if (refresh && projectId) invalidateInlineImage(projectId, path);
+    const selection = { source, projectId, path, failed: false, pending: true, current: isCurrent, change };
+    previewSelectionRef.current = selection;
+    const request = ++previewRequestRef.current;
     setPreview({ source, path, status: "loading", file: undefined, error: undefined, revision: request });
     void onReadFile(path).then((file) => {
-      if (previewRequestRef.current !== request) return;
+      if (previewRequestRef.current !== request || !selection.current()) return;
+      selection.pending = false;
       setPreview({ source, path: file.path, status: "ready", file, error: undefined, revision: request });
     }).catch((error: unknown) => {
-      if (previewRequestRef.current !== request) return;
+      if (previewRequestRef.current !== request || !selection.current()) return;
+      selection.pending = false;
+      selection.failed = true;
       setPreview({ source, path, status: "error", file: undefined, error: errorMessage(error) });
+    }).finally(() => {
+      if (previewRequestRef.current === request && !selection.current()) {
+        previewSelectionRef.current = undefined;
+        setPreview(undefined);
+      }
     });
     if (!directoryStates.has(".")) loadDirectory(".");
-  }, [directoryStates, loadDirectory, onReadFile, source]);
+  }, [cancelFileReference, changes, directoryStates, loadDirectory, onReadFile, projectId, source]);
+
+  const reserveFilePreview = useCallback((target: { projectId: string; source: string }, isCurrent: () => boolean): FilePreviewReservation => {
+    const pending: PendingFileReference = {
+      ...target, request: ++previewRequestRef.current, transferred: false,
+      current: () => pendingFileReferenceRef.current === pending && previewRequestRef.current === pending.request && isCurrent(),
+      cancel: () => { if (pendingFileReferenceRef.current === pending) cancelFileReference(); },
+      open: (path) => {
+        if (!pending.current()) return;
+        pending.path = path;
+        if (previousSource.current.projectId !== target.projectId || previousSource.current.source !== target.source) return;
+        pendingFileReferenceRef.current = undefined;
+        currentPreviewFileRef.current?.(path, false, isCurrent);
+      }
+    };
+    pendingFileReferenceRef.current = pending;
+    previewSelectionRef.current = undefined;
+    // An older read was retired above; do not leave its spinner running after lookup failure.
+    setPreview(current => current?.status === "loading" ? undefined : current);
+    return pending;
+  }, [cancelFileReference]);
+  useLayoutEffect(() => {
+    currentPreviewFileRef.current = previewFile;
+    const pending = pendingFileReferenceRef.current;
+    if (pending?.path !== undefined) pending.open(pending.path);
+  }, [previewFile]);
 
   const showFileBrowser = useCallback((): void => {
+    cancelFileReference();
     previewRequestRef.current += 1;
+    previewSelectionRef.current = undefined;
     setPreview(undefined);
     if (!directoryStates.has(".")) loadDirectory(".");
-  }, [directoryStates, loadDirectory]);
+  }, [cancelFileReference, directoryStates, loadDirectory]);
 
   const runHtml = useCallback((path: string): void => {
     if (!projectId) return;
@@ -293,6 +378,25 @@ export function useWorkspaceInspector({
       openInspector("browser");
     })().catch((error: unknown) => onWarning(errorMessage(error)));
   }, [onWarning, openInspector, projectId]);
+
+  const visibleExpandedDirectories = useCallback((): string[] => {
+    const visible: string[] = [];
+    const visit = (path: string): void => {
+      for (const entry of directoryStates.get(path)?.entries ?? []) {
+        if (entry.kind !== "directory" || !expandedDirectories.has(entry.path)) continue;
+        visible.push(entry.path);
+        visit(entry.path);
+      }
+    };
+    visit(".");
+    return visible;
+  }, [directoryStates, expandedDirectories]);
+
+  useEffect(() => {
+    for (const path of visibleExpandedDirectories()) {
+      if (!directoryStates.has(path)) loadDirectory(path);
+    }
+  }, [directoryStates, loadDirectory, visibleExpandedDirectories]);
 
   const toggleDirectory = useCallback((relativePath: string): void => {
     const normalizedPath = normalizeWorkspacePath(relativePath);
@@ -314,11 +418,11 @@ export function useWorkspaceInspector({
   const openRailAction = useCallback((action: RailAction): void => {
     // rail 上点当前已打开的 tab 再点一次是收起面板。
     if (inspectorOpen && inspectorView === action) {
-      setInspectorOpen(false);
+      closeInspector();
       return;
     }
     openInspector(action);
-  }, [inspectorOpen, inspectorView, openInspector]);
+  }, [closeInspector, inspectorOpen, inspectorView, openInspector]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -355,18 +459,24 @@ export function useWorkspaceInspector({
 
   const refreshFiles = useCallback((): void => {
     loadDirectory(".");
-    for (const path of expandedDirectories) loadDirectory(path);
-    if (activePreview) previewFile(activePreview.path);
-  }, [activePreview, expandedDirectories, loadDirectory, previewFile]);
+    const visible = new Set(visibleExpandedDirectories());
+    // 隐藏分支保留展开意图，但丢弃旧内容与在途结果，重新可见后再读取。
+    for (const path of directoryRequestRef.current.keys()) {
+      if (path !== "." && !visible.has(path)) directoryRequestRef.current.delete(path);
+    }
+    setDirectoryStates(current => new Map([...current].filter(([path]) => path === "." || visible.has(path))));
+    for (const path of visible) loadDirectory(path);
+    if (activePreview) previewFile(activePreview.path, true);
+  }, [activePreview, visibleExpandedDirectories, loadDirectory, previewFile]);
   const collapseDirectories = useCallback((): void => setExpandedDirectories(new Set()), []);
-  const toolContent = (view: InspectorView): React.JSX.Element | null => !projectId ? null : view === "rendering" ? activeRendering ? <RenderingPreviewPanel previews={activeRendering.previews} activeId={activeRendering.activeId} expanded={renderingExpanded} active={effectiveOpen && renderingView} onSelect={activeId => setRendering(previous => previous ? { ...previous, activeId } : previous)} onClosePreview={closeRendering} onToggleExpanded={() => setRenderingExpanded(value => !value)} onClose={() => { setRenderingExpanded(false); setInspectorOpen(false); }} /> : null
+  const toolContent = (view: InspectorView): React.JSX.Element | null => !projectId ? null : view === "rendering" ? activeRendering ? <RenderingPreviewPanel previews={activeRendering.previews} activeId={activeRendering.activeId} expanded={renderingExpanded} active={effectiveOpen && renderingView} onSelect={activeId => setRendering(previous => previous ? { ...previous, activeId } : previous)} onClosePreview={closeRendering} onToggleExpanded={() => setRenderingExpanded(value => !value)} onClose={() => { setRenderingExpanded(false); closeInspector(); }} /> : null
     : view === "terminal" ? <TerminalView projectId={projectId} active={inspectorOpen && inspectorView === "terminal"} />
     : view === "files" ? <FilePreviewPanel width={Math.max(0, panelWidth - 1)} directoryStates={directoryStates} expandedDirectories={expandedDirectories} onOpenFile={onOpenFile} onPreviewFile={previewFile} onRunHtml={runHtml} onShowFiles={showFileBrowser} onToggleDirectory={toggleDirectory} preview={activePreview} projectId={projectId} onRefresh={refreshFiles} onCollapse={collapseDirectories} />
       : view === "changes" ? <SessionChangesPanel changes={changes} onPreviewFile={previewFile} />
         : view === "commit" ? <WorkspaceCommitPanel projectId={projectId} active={effectiveOpen && inspectorView === "commit"} onCount={setGitChangeCount} onSwitchBranch={onSwitchBranch} onPreviewFile={previewFile} />
           : view === "browser" ? <WorkspaceBrowserPanel projectId={projectId} active={effectiveOpen && inspectorView === "browser"} expanded={focused} onToggleExpanded={() => setBrowserExpanded((value) => !value)} onAttachReference={onAttachBrowserReference ? (value) => { setBrowserExpanded(false); onAttachBrowserReference(value); } : undefined} onWarning={onWarning} onOpenTerminal={() => openInspector("terminal")} onFixPreview={onFixPreview} />
             : view === "references" ? <WorkspaceReferencesPanel projectId={projectId} reference={reference} onSelect={setReference} />
-              : <WorkspaceToolsPanel tools={tools} />;
+              : <WorkspaceToolsPanel tools={tools} skills={skills} />;
   const changeCount = changes.length;
   // 以真正可用的标签宽度决定折叠；留出滞回空间，避免拖动临界宽度时来回闪动。
   useLayoutEffect(() => {
@@ -451,7 +561,7 @@ export function useWorkspaceInspector({
             })}
           </nav>
           <button aria-label="切换会话时保持工具栏展开" aria-pressed={pinned} className="desktop-inspector-close" title="切换会话时保持展开" onClick={() => setPinned((value) => !value)} type="button"><Icon name="pin" size={14} /></button>
-          <button aria-label="收起工作区工具" className="desktop-inspector-close" onClick={() => setInspectorOpen(false)} title="收起工作区工具" type="button">
+          <button aria-label="收起工作区工具" className="desktop-inspector-close" onClick={closeInspector} title="收起工作区工具" type="button">
             <Icon name="close" size={15} />
           </button>
         </header>
@@ -531,6 +641,7 @@ export function useWorkspaceInspector({
     openFiles,
     showBrowser,
     previewFile,
+    reserveFilePreview,
     previewReference,
     previewRendering,
     toggleTerminal

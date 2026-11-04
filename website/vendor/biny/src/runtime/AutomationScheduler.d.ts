@@ -4,6 +4,7 @@ export type AutomationTriggerType = "heartbeat" | "cron" | "interval" | "once";
 export type AutomationStatus = "active" | "paused" | "completed" | "failed" | "expired";
 export interface AutomationSchedule {
     cron?: string;
+    timezone?: string;
     intervalMs?: number;
     at?: string;
     jitterMs?: number;
@@ -34,6 +35,8 @@ export interface AutomationPendingFire {
     fireId: string;
     automationId: string;
     scheduledAt: string;
+    /** Deferred discovery deadline; scheduledAt remains the durable fire identity. */
+    retryAt?: string;
     claimToken?: string;
     claimedAt?: string;
     status: "pending" | "running" | "completed" | "failed" | "deferred" | "needs_approval";
@@ -69,7 +72,7 @@ export declare class AutomationStore {
     resume(automationId: string): AutomationRecord;
     delete(automationId: string): void;
     forceFire(automationId: string, scheduledAt?: string): AutomationPendingFire;
-    claimDue(now?: Date, limit?: number): AutomationPendingFire[];
+    claimDue(now?: Date, limit?: number, knownFireIds?: ReadonlySet<string>): AutomationPendingFire[];
     claimFire(fireId: string, claimToken?: `${string}-${string}-${string}-${string}-${string}`): AutomationPendingFire | undefined;
     completeFire(fireId: string, runId: string): AutomationPendingFire;
     failFire(fireId: string, error: string, pauseAfter?: number): AutomationPendingFire;
@@ -84,17 +87,15 @@ export declare class AutomationStore {
     private require;
     getFire(fireId: string): AutomationPendingFire | undefined;
     private requireFire;
-    private transaction;
     private assertOpen;
 }
 export interface AutomationSchedulerOptions {
     onActivity?(): void;
     getRuntime: () => InteractiveRuntimeHandle;
     /** 重建 runtime 后数据库连接会替换；scheduler 必须取当前 authority projection。 */
-    getStore?: () => AutomationStore;
-    store?: AutomationStore;
+    getStore: () => AutomationStore;
     /** 为某个 fire 取得专属 session runtime；不传目标时创建新的自动化 session。 */
-    createFreshRuntime?: (sessionId?: string) => Promise<InteractiveRuntimeHandle>;
+    createFreshRuntime: (sessionId?: string) => Promise<InteractiveRuntimeHandle>;
     onRuntimeReplaced?: (runtime: InteractiveRuntimeHandle) => void;
     canStartRun?: () => boolean;
     tickMs?: number;

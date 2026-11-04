@@ -47,11 +47,13 @@ export declare class SessionGoalConflictError extends Error {
 export declare class SessionGoalStore {
     private readonly database;
     private readonly authority;
+    private static readonly subscriptions;
     private closed;
     private readonly listeners;
+    private readonly subscriptionKey;
     private constructor();
     static open(persistenceRoot: string, authority: RuntimeEventAuthority): Promise<SessionGoalStore>;
-    subscribe(listener: () => void): () => void;
+    subscribe(listener: (sessionId: string) => void): () => void;
     get(sessionId: string): SessionGoalRecord | undefined;
     list(options?: {
         status?: SessionGoalStatus;
