@@ -9,6 +9,14 @@
 | `web-research.png` | 联网搜索：MDN 抓取记录、对比表格与来源 | 1357 × 828 |
 | `computer-history.png` | Computer History：运行统计、授权与排除应用 | 759 × 683 |
 
+窄屏（≤640px）缩略图使用下列 WebP 裁切，均取自上方 1x PNG（cwebp -q 90）；联网搜索内容为整宽表格，不裁切。修改对应 PNG 时同步重新裁切。
+
+| 文件 | 来源与区域 |
+| --- | --- |
+| `code-mode-mobile.webp` | `code-mode.png` x=258 y=110 w=545 h=660 |
+| `tool-calls-mobile.webp` | `tool-calls.png` x=258 y=52 w=545 h=660 |
+| `computer-history-mobile.webp` | `computer-history.png` x=20 y=10 w=420 h=470 |
+
 网页查询截图保留了原有工具状态，其中一项抓取显示异常，不将其描述为全部抓取成功。
 
-隐私脱敏由 `PrivacyDemo.tsx` 嵌入固定高度的 `privacy-demo.html`，复用真实面板和内置虚构邮箱请求，支持时间范围、提供商、会话、类型筛选和请求前后对照；不连接 Desktop 或模型服务。来源说明见 `../../src/demo/privacy/README.md`。
+隐私脱敏改为内联的 `PrivacyStory` 分步演示（`src/demo/privacyStory.ts` 提供数据），不再使用截图或独立页面。

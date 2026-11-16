@@ -13,7 +13,7 @@ const { build } = requireRoot("esbuild");
 test("下载与首页共享文档，旧地址保留参数和锚点，重复点击仍定位下载区", async (context) => {
   const directory = await mkdtemp(fileURLToPath(new URL("../.navigation-test-", import.meta.url)));
   const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: "http://localhost/zh/download?from=old", pretendToBeVisual: true });
-  const keys = ["window", "self", "document", "location", "navigator", "HTMLElement", "Element", "Node", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame", "ResizeObserver", "IntersectionObserver", "fetch", "IS_REACT_ACT_ENVIRONMENT"];
+  const keys = ["window", "self", "document", "location", "navigator", "HTMLElement", "Element", "Node", "MutationObserver", "requestAnimationFrame", "cancelAnimationFrame", "ResizeObserver", "IntersectionObserver", "getComputedStyle", "fetch", "IS_REACT_ACT_ENVIRONMENT"];
   const saved = new Map(keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const anchors: string[] = [];
   const tops: unknown[] = [];
@@ -42,13 +42,13 @@ test("下载与首页共享文档，旧地址保留参数和锚点，重复点�
     entryPoints: [fileURLToPath(new URL("../src/App.tsx", import.meta.url))],
     outfile: `${directory}/app.mjs`, bundle: true, platform: "browser", format: "esm", jsx: "automatic",
     external: ["react", "react/*", "react-dom", "react-dom/*", "react-router-dom"],
-    loader: { ".css": "empty", ".png": "dataurl" }, logLevel: "silent",
+    loader: { ".css": "empty", ".png": "dataurl", ".webp": "dataurl" }, logLevel: "silent",
   });
   const { App } = await import(pathToFileURL(`${directory}/app.mjs`).href);
   const nextFrame = () => act(async () => { await new Promise(resolve => dom.window.requestAnimationFrame(resolve)); });
   await act(async () => { root.render(createElement(BrowserRouter, null, createElement(App))); });
   await nextFrame();
-  assert.equal(dom.window.location.pathname, "/zh");
+  assert.equal(dom.window.location.pathname, "/");
   assert.equal(dom.window.location.search, "?from=old");
   assert.equal(dom.window.location.hash, "#download");
   assert.equal(dom.window.document.querySelectorAll("main").length, 1);
@@ -62,7 +62,7 @@ test("下载与首页共享文档，旧地址保留参数和锚点，重复点�
     await act(async () => { link.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, button: 0 })); });
     await nextFrame();
   };
-  const downloadLink = 'nav[aria-label="主导航"] a.site-nav-link[href="/zh#download"]';
+  const downloadLink = 'nav[aria-label="主导航"] a.site-nav-cta[href="/#download"]';
   await click(downloadLink);
   const before = anchors.length;
   await click(downloadLink);
@@ -72,8 +72,8 @@ test("下载与首页共享文档，旧地址保留参数和锚点，重复点�
   assert.equal(dom.window.location.hash, "");
   assert.deepEqual(tops.at(-1), { top: 0 });
 
-  await click('nav[aria-label="主导航"] a[href="/zh/docs"]');
-  assert.equal(dom.window.location.pathname, "/zh/docs");
+  await click('nav[aria-label="主导航"] a[href="/docs"]');
+  assert.equal(dom.window.location.pathname, "/docs");
   await click(downloadLink);
   assert.ok(dom.window.document.querySelector("#home-title"));
   assert.equal(anchors.at(-1), "download");
@@ -83,8 +83,17 @@ test("下载与首页共享文档，旧地址保留参数和锚点，重复点�
     dom.window.dispatchEvent(new dom.window.PopStateEvent("popstate"));
   });
   await nextFrame();
-  assert.equal(dom.window.location.pathname, "/zh");
+  assert.equal(dom.window.location.pathname, "/");
   assert.equal(dom.window.location.search, "?from=terminal");
   assert.equal(dom.window.location.hash, "#terminal");
   assert.equal(anchors.at(-1), "terminal");
+
+  await act(async () => {
+    dom.window.history.pushState(null, "", "/zh/docs/memory?x=1#y");
+    dom.window.dispatchEvent(new dom.window.PopStateEvent("popstate"));
+  });
+  await nextFrame();
+  assert.equal(dom.window.location.pathname, "/docs/memory");
+  assert.equal(dom.window.location.search, "?x=1");
+  assert.equal(dom.window.location.hash, "#y");
 });

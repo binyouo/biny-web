@@ -348,7 +348,8 @@ export const zh = {
   },
   common: {
     backHome: "返回首页",
-    notFoundTitle: "页面未找到",
+    notFoundTitle: "这一页我没找到。",
+    notFoundBody: "可能是地址打错了，也可能它已经搬走了。",
     themeToggle: "切换主题",
     openMenu: "打开菜单",
     closeMenu: "关闭菜单"

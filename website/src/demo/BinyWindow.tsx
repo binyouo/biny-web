@@ -5,6 +5,9 @@ import { useInView } from "../lib/utils";
 import { CLIENT_HEIGHT, CLIENT_WIDTH, clientScale, hasTrustedSender, isDemoState, type DemoCommand, type DemoState } from "./bridge";
 import "./preview.css";
 
+const COMPACT_WIDTH = 520;
+const COMPACT_HEIGHT = 760;
+
 function focusableElements(root: ParentNode): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex], iframe")]
     .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && !element.closest("[inert]") && element.getClientRects().length > 0);
@@ -12,8 +15,9 @@ function focusableElements(root: ParentNode): HTMLElement[] {
 
 export function BinyWindow({ variant }: { variant?: "computer" }) {
   const computer = variant === "computer";
-  const width = computer ? 1000 : CLIENT_WIDTH;
-  const height = computer ? 690 : CLIENT_HEIGHT;
+  const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 640px)").matches);
+  const width = computer ? 1000 : compact ? COMPACT_WIDTH : CLIENT_WIDTH;
+  const height = computer ? 690 : compact ? COMPACT_HEIGHT : CLIENT_HEIGHT;
   const { t } = useI18n();
   const [viewRef, inView] = useInView<HTMLDivElement>("-15% 0px");
   const previewRef = useRef<HTMLDivElement>(null);
@@ -34,6 +38,7 @@ export function BinyWindow({ variant }: { variant?: "computer" }) {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [onScreen, setOnScreen] = useState(false);
+  const [shouldLoad, setShouldLoad] = useState(false);
   const [pageVisible, setPageVisible] = useState(!document.hidden);
   const autoPaused = useRef(false);
   const active = (computer ? onScreen : inView) || expanded;
@@ -103,20 +108,38 @@ export function BinyWindow({ variant }: { variant?: "computer" }) {
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const resize = () => setScale(computer ? Math.min(1, stage.clientWidth / width) : clientScale(stage.clientWidth));
+    const resize = () => setScale(computer ? Math.min(1, stage.clientWidth / width) : compact ? stage.clientWidth / width : clientScale(stage.clientWidth));
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(stage);
     return () => observer.disconnect();
-  }, [computer, width]);
+  }, [computer, compact, width]);
 
   useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    const syncCompact = () => setCompact(media.matches);
+    media.addEventListener("change", syncCompact);
     const observer = new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting), { threshold: 0 });
     if (stageRef.current) observer.observe(stageRef.current);
     const sync = () => setPageVisible(!document.hidden);
     document.addEventListener("visibilitychange", sync);
-    return () => { observer.disconnect(); document.removeEventListener("visibilitychange", sync); };
+    return () => { observer.disconnect(); media.removeEventListener("change", syncCompact); document.removeEventListener("visibilitychange", sync); };
   }, []);
+
+  useEffect(() => {
+    if (onScreen || expanded) setShouldLoad(true);
+  }, [onScreen, expanded]);
+
+  useLayoutEffect(() => {
+    // 布局切换由 key 触发 iframe 重新挂载；这里复位加载状态，但不移动焦点。
+    readyRef.current = false;
+    setReady(false);
+    setStatus("idle");
+    setLoadError(null);
+    frameListenerCleanupRef.current?.();
+    frameListenerCleanupRef.current = null;
+    setExpanded(false);
+  }, [compact]);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -133,13 +156,13 @@ export function BinyWindow({ variant }: { variant?: "computer" }) {
   }, [clearLoadTimer, send]);
 
   useEffect(() => {
-    if (!readyRef.current) {
+    if (shouldLoad && !readyRef.current) {
       loadTimerRef.current = window.setTimeout(() => {
         setLoadError("演示未能完成加载，请检查网络后重试。");
       }, 12_000);
     }
     return clearLoadTimer;
-  }, [clearLoadTimer, loadAttempt]);
+  }, [clearLoadTimer, shouldLoad, loadAttempt, compact]);
 
   useEffect(() => () => frameListenerCleanupRef.current?.(), []);
   useEffect(() => {
@@ -219,7 +242,7 @@ export function BinyWindow({ variant }: { variant?: "computer" }) {
           <span aria-live="polite" className="client-demo-status sr-only">{loadError ? "演示加载失败" : !ready ? "正在加载演示…" : status === "paused" ? "演示已暂停" : status === "waiting" ? t.demo.controls.waiting : status === "done" ? t.demo.controls.done : status === "idle" ? "准备播放" : computer ? "Biny 正在操作" : t.demo.controls.playing}</span>
           <button disabled={!ready} aria-label="重播" title="重播" onClick={() => send("replay")} ref={replayButtonRef} type="button"><Icon name="refresh" size={13} /></button>
           {!computer && <button disabled={!ready || status === "done"} aria-label={t.demo.controls.skip} title={t.demo.controls.skip} onClick={() => send("skip")} type="button"><Icon name="chevronRight" size={13} /></button>}
-          {!computer && <button aria-expanded={expanded} aria-label={expanded ? "收起演示" : "放大查看"} title={expanded ? "收起演示" : "放大查看"} onClick={() => setExpanded((value) => !value)} ref={expandButtonRef} type="button"><Icon name={expanded ? "close" : "panelRight"} size={13} /></button>}
+          {!computer && !compact && <button aria-expanded={expanded} aria-label={expanded ? "收起演示" : "放大查看"} title={expanded ? "收起演示" : "放大查看"} onClick={() => setExpanded((value) => !value)} ref={expandButtonRef} type="button"><Icon name={expanded ? "close" : "panelRight"} size={13} /></button>}
         </div>
         <div
           className="client-demo-stage"
@@ -233,22 +256,23 @@ export function BinyWindow({ variant }: { variant?: "computer" }) {
             ? { height: `${height * scale}px` }
             : { aspectRatio: `${width} / ${height}` }}
         >
-          <iframe
+          {shouldLoad ? <iframe
             className="client-demo-frame"
             inert={computer || !ready}
             aria-hidden={computer || undefined}
-            key={loadAttempt}
+            key={`${compact ? "c" : "d"}-${loadAttempt}`}
             onError={() => { clearLoadTimer(); readyRef.current = false; setReady(false); setLoadError("演示加载失败，请重试。"); }}
             onLoad={handleFrameLoad}
             ref={iframeRef}
-            src={computer ? "/client-demo.html?scene=computer" : "/client-demo.html"}
+            src={computer ? "/client-demo.html?scene=computer" : compact ? "/client-demo.html?layout=compact" : "/client-demo.html"}
             style={{ width, height, transform: `scale(${scale})`, visibility: scale ? "visible" : "hidden" }}
             tabIndex={ready && !computer ? 0 : -1}
             title={computer ? "Biny 电脑操作预置演示" : "Biny 客户端预置交互演示"}
-          />
-          {!ready ? <div className="client-demo-feedback" role="status">
-            <p>{loadError ?? "正在加载客户端演示…"}</p>
-            {loadError ? <button onClick={retryLoad} type="button"><Icon name="refresh" size={14} />重试加载</button> : null}
+          /> : null}
+          {!computer && !loadError ? <img className={`client-demo-poster${ready && (status !== "idle" || !active) ? " is-done" : ""}`} src={compact ? "/demo/client-poster-compact.webp" : "/demo/client-poster.webp"} alt="" aria-hidden="true" loading="lazy" decoding="async" /> : null}
+          {!ready && loadError ? <div className="client-demo-feedback" role="status">
+            <p>{loadError}</p>
+            <button onClick={retryLoad} type="button"><Icon name="refresh" size={14} />重试加载</button>
           </div> : null}
         </div>
       </div>

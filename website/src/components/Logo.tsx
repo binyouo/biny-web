@@ -1,4 +1,4 @@
-import appIconUrl from "../assets/app-icon.png";
+import appIconUrl from "../assets/app-icon.webp";
 import { cn } from "../lib/utils";
 
 /**

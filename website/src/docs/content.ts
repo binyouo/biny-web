@@ -68,7 +68,7 @@ export const DOC_PAGES: readonly DocPage[] = [
             "自省日记：回顾对话与经历，以自己的口吻写日记，并按需更新记忆、成长特质与基础心情。可以手动发起；开启心跳后，也会收到日记和自省的提示。",
             "桌面活动回忆：开启 Computer History 并授权后，结合跨应用活动线索，帮你找回看过的内容、接上中断的思路。Crystal 则把值得持续关注的人、项目或话题组织成可继续补充的主题资料。"
           ] },
-          { type: "link", title: "了解记忆与 Computer History", href: "/zh/docs/memory" }
+          { type: "link", title: "了解记忆与 Computer History", href: "/docs/memory" }
         ]
       },
       {
@@ -77,7 +77,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         blocks: [
           { type: "paragraph", text: "软件开发、资料整理、写作和数据处理都能交给 Biny。它能操作项目文件、运行命令，在授权范围内使用浏览器和 macOS 应用，也能在聊天里呈现图表、公式、音乐与交互式可视化。" },
           { type: "paragraph", text: "复杂工作可以设置持续目标、拆给子代理，并保留任务进度；需要定时执行的工作可以配置本地自动化。模型由你选择，工具与工作流可通过 MCP、插件和 Skills 扩展。" },
-          { type: "link", title: "了解任务与恢复", href: "/zh/docs/tasks" }
+          { type: "link", title: "了解任务与恢复", href: "/docs/tasks" }
         ]
       },
       {
@@ -102,8 +102,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "按目的找到入口",
         blocks: [
           { type: "list", items: ["第一次使用：先跟随安装与快速开始完成配置。", "日常交互：在 TUI 或 Desktop 里持续对话、查看工具记录。", "模型与凭据：查看 Provider 与模型，接入你选择的服务商。", "把 Biny 接进脚本：用一次性任务提交明确的输入。", "查参数与配置：查阅 CLI、设置与环境变量等参考页。"] },
-          { type: "link", title: "阅读安装指南", href: "/zh/docs/installation" },
-          { type: "link", title: "完成第一次对话", href: "/zh/docs/quick-start" }
+          { type: "link", title: "阅读安装指南", href: "/docs/installation" },
+          { type: "link", title: "完成第一次对话", href: "/docs/quick-start" }
         ]
       }
     ]
@@ -140,7 +140,7 @@ export const DOC_PAGES: readonly DocPage[] = [
           { type: "paragraph", text: "Biny 的桌面端面向 macOS。从源码安装依赖后，在仓库目录运行以下命令。" },
           { type: "code", lines: ["pnpm desktop:dev"] },
           { type: "paragraph", text: "下载页面会读取公开发布信息。如果读取失败，可以前往发布页查看可用安装包。请以当前发布的产物为准。" },
-          { type: "link", title: "查看下载与发布入口", href: "/zh#download" }
+          { type: "link", title: "查看下载与发布入口", href: "/#download" }
         ]
       },
       {
@@ -149,7 +149,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         blocks: [
           { type: "paragraph", text: "默认全局配置位于 ~/.config/biny/config.json；运行数据默认存放在 ~/.biny/agent/ 下。项目目录中的 .biny 用于项目覆盖和扩展配置。" },
           { type: "note", title: "自定义运行目录", text: "设置 BINY_AGENT_DIR 后，配置和运行数据的位置会随之改变。排查配置时请先确认当前进程使用的环境变量。" },
-          { type: "link", title: "下一步：配置 Provider", href: "/zh/docs/providers" }
+          { type: "link", title: "下一步：配置 Provider", href: "/docs/providers" }
         ]
       }
     ]
@@ -168,7 +168,7 @@ export const DOC_PAGES: readonly DocPage[] = [
           { type: "paragraph", text: "先运行 biny init 创建默认配置。默认配置会预设一个 Provider 连接；按生成的配置准备对应凭据（通常是设置环境变量，或填进 config.json）。" },
           { type: "code", lines: ["biny init", "# 按 init 生成的 Provider 准备凭据", "export <你的 apiKeyEnv>='YOUR_API_KEY'"] },
           { type: "paragraph", text: "如果使用其他服务商，先配置一个可用 Provider 并选择模型。Desktop 可以在“模型供应商”设置中管理连接；终端使用全局配置文件。" },
-          { type: "link", title: "查看 Provider 配置方法", href: "/zh/docs/providers" }
+          { type: "link", title: "查看 Provider 配置方法", href: "/docs/providers" }
         ]
       },
       {
@@ -247,7 +247,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         blocks: [
           { type: "paragraph", text: "插件把工具、命令、快捷键、Provider、事件处理和界面注册进 Biny 进程；Skill 提供按需加载的指令与资源，提示模板提供可复用消息文本。项目资源在项目信任确认之后加载。" },
           { type: "paragraph", text: "启用的工具以 Biny 进程的操作系统权限运行，扩展也在该进程内执行。审批与权限模式只约束调用是否放行，并不替工具本身兜底。使用不受信任的文件、仓库或扩展前，请先阅读安全说明。" },
-          { type: "link", title: "查看安全与权限", href: "/zh/docs/security" }
+          { type: "link", title: "查看安全与权限", href: "/docs/security" }
         ]
       }
     ]
@@ -321,7 +321,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "会话内换模型",
         blocks: [
           { type: "paragraph", text: "同一会话可以切换模型，之前的对话上下文会被保留。需要更强推理时切到推理模型，需要更快响应时切回通用模型即可。" },
-          { type: "link", title: "配置 Provider 与凭据", href: "/zh/docs/providers" }
+          { type: "link", title: "配置 Provider 与凭据", href: "/docs/providers" }
         ]
       }
     ]
@@ -382,7 +382,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         blocks: [
           { type: "paragraph", text: "Biny 支持 ask、read-only、auto 和 full-access 权限模式。需要审批时，检查工具名称、输入参数与预期影响，再决定是否允许。" },
           { type: "code", lines: ['biny run "分析当前项目的结构" --permission-mode read-only --headless'] },
-          { type: "link", title: "了解工具与权限", href: "/zh/docs/tools" }
+          { type: "link", title: "了解工具与权限", href: "/docs/tools" }
         ]
       },
       {
@@ -447,7 +447,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "控制工具暴露",
         blocks: [
           { type: "paragraph", text: "并非所有 MCP 工具都需要直接声明给模型。可以借助工具搜索按需加载，或在权限策略中限制调用范围。MCP 资源的读取类工具也按 MCP 工具统计。" },
-          { type: "link", title: "查看工具与权限", href: "/zh/docs/tools" }
+          { type: "link", title: "查看工具与权限", href: "/docs/tools" }
         ]
       }
     ]
@@ -570,7 +570,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "资源与生效范围",
         blocks: [
           { type: "paragraph", text: "扩展配置以当前工作区和生效的配置为准。切换项目后，先确认该项目可用的扩展，再开始依赖它们的任务。" },
-          { type: "link", title: "了解工具执行权限", href: "/zh/docs/tools" }
+          { type: "link", title: "了解工具执行权限", href: "/docs/tools" }
         ]
       }
     ]
@@ -602,7 +602,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "验证连接",
         blocks: [
           { type: "paragraph", text: "修改连接后，先用简短对话检查响应，再尝试包含工具的任务。认证失败时先检查 API Key 与环境变量；模型不可用时核对模型 ID、接口地址与账号权限。" },
-          { type: "link", title: "返回 Provider 与模型", href: "/zh/docs/providers" }
+          { type: "link", title: "返回 Provider 与模型", href: "/docs/providers" }
         ]
       }
     ]
@@ -675,7 +675,7 @@ export const DOC_PAGES: readonly DocPage[] = [
           { type: "code", lines: ["{", '  "providers": {', '    "gateway": {', '      "type": "openai-compatible",', '      "baseUrl": "https://example.test/v1",', '      "apiKeyEnv": "MODEL_API_KEY"', "    }", "  }", "}"] },
           { type: "paragraph", text: "模型的选择与能力（上下文窗口、是否支持工具等）在 Desktop 的模型设置里配置。修改连接后，先用简短对话检查响应，再尝试包含工具的任务。" },
           { type: "paragraph", text: "如果出现认证失败，先检查 API Key 和环境变量；如果提示模型不可用，确认模型 ID、接口地址和账号权限。网络错误可以检查服务连接后再重试。" },
-          { type: "link", title: "接入自定义兼容接口", href: "/zh/docs/custom-provider" }
+          { type: "link", title: "接入自定义兼容接口", href: "/docs/custom-provider" }
         ]
       },
       {
@@ -683,7 +683,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "本地数据与远端请求",
         blocks: [
           { type: "paragraph", text: "Biny 在本地保存会话和记忆。使用远端模型时，调用所需的消息、上下文和工具信息会发送给配置的 Provider。外部 MCP 服务也有各自的数据处理方式。" },
-          { type: "link", title: "了解工具与权限", href: "/zh/docs/tools" }
+          { type: "link", title: "了解工具与权限", href: "/docs/tools" }
         ]
       }
     ]
@@ -852,7 +852,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "处理失败和未知结果",
         blocks: [
           { type: "paragraph", text: "认证失败、权限拒绝、工具超时和进程中断需要不同的处理方式。先检查错误和已经产生的结果，再选择重试或继续，避免重复执行已发生的操作。" },
-          { type: "link", title: "查看中断与恢复边界", href: "/zh/docs/tasks" }
+          { type: "link", title: "查看中断与恢复边界", href: "/docs/tasks" }
         ]
       }
     ]
@@ -936,7 +936,7 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "浏览器与 Appshots",
         blocks: [
           { type: "paragraph", text: "桌面端内置浏览器可以让 Biny 在你正在使用的页面里工作，Chrome Relay 可把已连接的标签页提供给 Biny。Appshots 通过快捷键捕获当前窗口的截图和可读文字，加入聊天草稿，由你检查后再发送。" },
-          { type: "link", title: "查看工具与权限", href: "/zh/docs/tools" }
+          { type: "link", title: "查看工具与权限", href: "/docs/tools" }
         ]
       }
     ]
@@ -1029,8 +1029,8 @@ export const DOC_PAGES: readonly DocPage[] = [
         title: "记忆与扩展",
         blocks: [
           { type: "paragraph", text: "记忆相关设置涵盖是否使用记忆、Sleep 整理周期等；扩展相关设置涵盖可用工具与工具暴露方式。这些结构较细，建议在 Desktop 设置里切换，或参考 init 生成的完整示例。" },
-          { type: "link", title: "了解记忆", href: "/zh/docs/memory" },
-          { type: "link", title: "了解扩展与插件", href: "/zh/docs/extensions" }
+          { type: "link", title: "了解记忆", href: "/docs/memory" },
+          { type: "link", title: "了解扩展与插件", href: "/docs/extensions" }
         ]
       }
     ]

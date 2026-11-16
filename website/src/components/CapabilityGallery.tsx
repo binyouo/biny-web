@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
-export type CapabilitySlide = { caption: string; src: string; alt: string; width: number; height: number };
+export type CapabilitySlide = { caption: string; src: string; alt: string; width: number; height: number; mobile?: { src: string; width: number; height: number } };
 
-function Slide({ slide }: { slide: CapabilitySlide }) {
+function Slide({ slide, expanded }: { slide: CapabilitySlide; expanded?: boolean }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <p className="capability-image-error" role="status">图片暂时无法加载</p>;
+  const image = <img src={slide.src} alt={slide.alt} width={slide.width} height={slide.height} loading="lazy" onError={() => setFailed(true)} />;
   return <div className="capability-images">
-    <img src={slide.src} alt={slide.alt} width={slide.width} height={slide.height} loading="lazy" onError={() => setFailed(true)} />
+    {slide.mobile && !expanded ? <picture>
+      <source media="(max-width: 640px)" srcSet={slide.mobile.src} width={slide.mobile.width} height={slide.mobile.height} />
+      {image}
+    </picture> : image}
   </div>;
 }
 
@@ -38,7 +42,7 @@ export function CapabilityGallery({ title, slides }: { title: string; slides: re
   };
   const move = (step: number) => setIndex(current => (current + step + slides.length) % slides.length);
   const controls = <div className="capability-gallery-footer">
-    <span aria-live="polite" aria-atomic="true">{slide.caption}</span>
+    {slides.length > 1 && <span aria-live="polite" aria-atomic="true">{slide.caption}</span>}
     {slides.length > 1 && <div className="capability-gallery-dots" role="group" aria-label={`${title}展示切换`}>
       {slides.map((item, i) => <button key={item.caption} type="button" aria-label={`切换到${item.caption}`} aria-pressed={index === i} onClick={() => setIndex(i)}><span /></button>)}
     </div>}
@@ -51,7 +55,10 @@ export function CapabilityGallery({ title, slides }: { title: string; slides: re
       onCancel={event => { event.preventDefault(); collapse(); }}
       onClick={event => { if (expanded && event.target === event.currentTarget) collapse(); }}>
       <div className="capability-gallery-inner">
-        <div className="capability-gallery-stage" style={expanded ? undefined : { aspectRatio: `${slides[0].width} / ${slides[0].height}` }}>{expanded ? <Slide key={slide.src} slide={slide} /> : <button className="capability-image-button" type="button" aria-label={`放大截图：${slide.caption}`} onClick={expand}><Slide key={slide.src} slide={slide} /></button>}</div>
+        <div className="capability-gallery-stage" style={expanded ? undefined : {
+          "--ar": `${slides[0].width} / ${slides[0].height}`,
+          "--ar-m": slides[0].mobile ? `${slides[0].mobile.width} / ${slides[0].mobile.height}` : undefined,
+        } as React.CSSProperties}>{expanded ? <Slide key={slide.src} slide={slide} expanded /> : <button className="capability-image-button" type="button" aria-label={`放大截图：${slide.caption}`} onClick={expand}><Slide key={slide.src} slide={slide} /></button>}</div>
         {controls}
       </div>
     </dialog>

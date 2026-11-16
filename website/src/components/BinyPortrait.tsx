@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import portraitUrl from "../assets/biny-portrait.png";
-import portraitBlinkUrl from "../assets/biny-portrait-blink.png";
+import portraitUrl from "../assets/biny-portrait.webp";
+import portraitBlinkUrl from "../assets/biny-portrait-blink.webp";
 import { cn } from "../lib/utils";
+import "./biny-portrait.css";
 
 /**
  * 首页大号白兔：平时睁眼，隔几秒眨一下。
  * 和桌面端 AppIcon 用同一套「睁眼图 + 闭眼图叠加」的做法，
- * 只是这里用大尺寸原图，动画节奏更松弛。
+ * 只是这里用大尺寸图，动画节奏更松弛。
  */
 export function BinyPortrait({ size = 320, className, sleepy = false }: { size?: number; className?: string; sleepy?: boolean }) {
   const [blinking, setBlinking] = useState(false);

@@ -9,28 +9,28 @@
         width: 1200px;
         height: 630px;
         display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 30px;
-        padding: 0 88px;
-        background: #111111;
-        color: #eeeeee;
+        align-items: center;
+        justify-content: space-between;
+        gap: 60px;
+        padding: 0 96px;
+        background: linear-gradient(to bottom, #ebf2f9 0%, #fbfaf9 75%);
+        color: #171717;
         font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
         overflow: hidden;
       }
-      .row { position: relative; display: flex; align-items: center; gap: 22px; }
-      .row img { width: 84px; height: 84px; }
-      .row span { font-size: 40px; font-weight: 650; letter-spacing: -0.02em; }
-      h1 { position: relative; font-size: 82px; font-weight: 600; letter-spacing: -0.035em; line-height: 1.1; }
-      p { position: relative; max-width: 940px; font-size: 28px; line-height: 1.55; color: #b3b3b3; }
+      .text { flex: 0 1 auto; }
+      h1 { font-size: 84px; font-weight: 650; letter-spacing: -0.03em; line-height: 1.12; }
+      .lede { margin-top: 28px; font-size: 28px; line-height: 1.6; color: #4c4c4c; }
+      .domain { margin-top: 40px; font-size: 22px; color: #6b6b6b; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+      .portrait { flex: 0 0 auto; width: 340px; height: 340px; }
     </style>
   </head>
   <body>
-    <div class="row">
-      <img src="/icon-1024.png" alt="" />
-      <span>Biny</span>
+    <div class="text">
+      <h1>你好，<br />我是 Biny。</h1>
+      <p class="lede">一只住在你电脑里的 AI 伙伴。<br />聊过的事都记在本机，不用账号。</p>
+      <p class="domain">biny.online</p>
     </div>
-    <h1>把想法，交给 Biny。</h1>
-    <p>本地优先的 AI Agent，在 macOS 桌面端或终端里直接进入你的工作区，完成编码、研究和文件处理。</p>
+    <img class="portrait" src="/src/assets/biny-portrait.webp" alt="" />
   </body>
 </html>

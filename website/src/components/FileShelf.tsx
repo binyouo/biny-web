@@ -254,7 +254,6 @@ export function FileShelf() {
             {selected.note && <p className="shelf-preview-note">{selected.note}</p>}
             {selected.preview}
           </div>
-          <p className="shelf-disclaimer">示例内容 · 真实文件只存在你的电脑上</p>
         </div>
       </div>
     </div>

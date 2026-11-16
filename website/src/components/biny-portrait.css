@@ -1,0 +1,6 @@
+/* 白兔肖像：睁眼 + 闭眼叠加眨眼。 */
+.biny-portrait { position: relative; display: block; flex: 0 0 auto; }
+.biny-portrait img { display: block; width: 100%; height: 100%; border-radius: 22.5%; }
+.biny-portrait .biny-portrait-closed { position: absolute; inset: 0; opacity: 0; transition: opacity .12s ease; }
+.biny-portrait[data-blink="true"] .biny-portrait-closed { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .biny-portrait .biny-portrait-closed { transition: none; } }

@@ -16,7 +16,9 @@ import "./client-adapter.css";
 // Desktop focuses the composer when sessions load; an embed must not pull the host page along.
 if (window.parent !== window) containFrameFocus(HTMLElement);
 
-const computer = new URLSearchParams(window.location.search).get("scene") === "computer";
+const params = new URLSearchParams(window.location.search);
+const computer = params.get("scene") === "computer";
+const compact = params.get("layout") === "compact";
 let ready = false;
 let pageStage = 0;
 const report = (status: DemoState["status"]) => { if (ready) window.parent.postMessage({ source: "biny-client-demo", status } satisfies DemoState, window.location.origin); };
@@ -48,10 +50,11 @@ let sidebarPrepared = false;
 demo.api.commitSelection = async (...args) => {
   ready = true;
   await commitSelection(...args);
-  if (computer) {
-    if (!sidebarPrepared) { sidebarPrepared = true; demo.toggleSidebar(); }
-    demo.showBrowser();
+  if ((computer || compact) && !sidebarPrepared) {
+    sidebarPrepared = true;
+    demo.toggleSidebar();
   }
+  if (computer) demo.showBrowser();
 };
 window.biny = demo.api;
 applyAppearance(document.documentElement, demoAppearance);

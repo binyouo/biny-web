@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation, useParams } from "react-router-do
 import { SiteNav } from "./components/SiteNav";
 import { SiteFooter } from "./components/SiteFooter";
 import { NotFoundPage } from "./pages/NotFoundPage";
-import { DEFAULT_LOCALE, I18nContext, isLocale, locales } from "./i18n";
+import { DEFAULT_LOCALE, I18nContext, locales } from "./i18n";
 
 const HomePage = lazy(() => import("./pages/HomePage").then((page) => ({ default: page.HomePage })));
 const DocsPage = lazy(() => import("./pages/DocsPage").then((page) => ({ default: page.DocsPage })));
@@ -37,58 +37,44 @@ function PageEffects() {
   }, [pathname, hash, key]);
   useEffect(() => {
     document.querySelector('link[rel="canonical"]')?.setAttribute("href", `https://biny.online${pathname}`);
-    if (/^\/[^/]+\/docs(?:\/|$)/.test(pathname)) return;
-    const home = pathname === "/zh" || pathname === "/zh/";
+    if (/^\/docs(?:\/|$)/.test(pathname)) return;
+    const home = pathname === "/";
     document.title = home ? "Biny · 一只住在你电脑里的 AI 伙伴" : "页面未找到 · Biny";
     document.querySelector('meta[name="description"]')?.setAttribute("content", "Biny 是住在你电脑里的 AI 伙伴。聊过的事、看过的网页、说好的规矩都记在本机，不用账号。支持 macOS 桌面端与终端。");
   }, [pathname]);
   return null;
 }
 
-function DocsRedirect() {
-  const { "*": slug } = useParams();
+function LegacyRedirect() {
+  const { "*": rest = "" } = useParams();
   const { hash, search } = useLocation();
-  return <Navigate replace to={`/${DEFAULT_LOCALE}/docs${slug ? `/${slug}` : ""}${search}${hash}`} />;
+  return <Navigate replace to={`/${rest.replace(/^\/+/, "")}${search}${hash}`} />;
 }
 
 function DownloadRedirect() {
-  const { locale } = useParams();
   const { hash, search } = useLocation();
-  return <Navigate replace to={`/${isLocale(locale) ? locale : DEFAULT_LOCALE}${search}${hash || "#download"}`} />;
+  return <Navigate replace to={`/${search}${hash || "#download"}`} />;
 }
 
-function LocaleLayout() {
-  const { locale } = useParams();
+export function App() {
   const { pathname } = useLocation();
-  if (!isLocale(locale)) return <Navigate replace to={`/${DEFAULT_LOCALE}`} />;
   return (
-    <I18nContext.Provider value={{ locale, t: locales[locale] }}>
+    <I18nContext.Provider value={{ locale: DEFAULT_LOCALE, t: locales[DEFAULT_LOCALE] }}>
       <div className="site-backdrop" aria-hidden="true" />
       <SiteNav />
-      <PageBoundary key={pathname}>
-        <Suspense fallback={<main className="site-loading" id="main-content" role="status">正在加载页面…</main>}>
+      <Suspense fallback={<main className="site-loading" id="main-content" role="status">正在加载页面…</main>}>
+        <PageBoundary key={pathname}>
           <Routes>
             <Route element={<HomePage />} path="/" />
             <Route element={<DownloadRedirect />} path="/download" />
             <Route element={<DocsPage />} path="/docs/*" />
+            <Route element={<LegacyRedirect />} path="/zh/*" />
             <Route element={<NotFoundPage />} path="*" />
           </Routes>
           <PageEffects />
-        </Suspense>
-      </PageBoundary>
+        </PageBoundary>
+      </Suspense>
       <SiteFooter />
     </I18nContext.Provider>
-  );
-}
-
-export function App() {
-  return (
-    <Routes>
-      <Route element={<Navigate replace to={`/${DEFAULT_LOCALE}`} />} path="/" />
-      <Route element={<DocsRedirect />} path="/docs/*" />
-      <Route element={<DownloadRedirect />} path="/download" />
-      <Route element={<LocaleLayout />} path="/:locale/*" />
-      <Route element={<NotFoundPage />} path="*" />
-    </Routes>
   );
 }

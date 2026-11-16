@@ -6,7 +6,9 @@
 .client-demo-controls button:disabled { opacity: .45; cursor: default; }
 .client-demo-stage { position: relative; width: 100%; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: #1f1f1f; box-shadow: var(--lift); }
 .client-demo-frame { position: absolute; inset: 0 auto auto 0; border: 0; transform-origin: 0 0; }
-.client-demo-feedback { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; padding: 24px; background: var(--canvas-alt); color: var(--ink-2); text-align: center; font-size: 13px; }
+.client-demo-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; pointer-events: none; transition: opacity .2s; }
+.client-demo-poster.is-done { opacity: 0; }
+.client-demo-feedback { position: absolute; z-index: 2; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; padding: 24px; background: var(--canvas-alt); color: var(--ink-2); text-align: center; font-size: 13px; }
 .client-demo-feedback p { margin: 0; line-height: 1.8; }
 .client-demo-feedback button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 0; color: var(--ink-2); font-size: 12px; cursor: pointer; }
 .client-demo-feedback button:hover { color: var(--ink); background: var(--hover); }
@@ -16,7 +18,7 @@
 .client-demo-computer .client-demo-stage { box-shadow: none; border-radius: 10px; }
 .client-demo-computer .client-demo-frame { pointer-events: none; }
 @media (hover: none) { .client-demo-controls { opacity: 1; pointer-events: auto; } }
-@media (prefers-reduced-motion: reduce) { .client-demo-controls { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .client-demo-controls, .client-demo-poster { transition: none; } }
 @media (max-width: 600px) {
   .client-demo-feedback { gap: 10px; padding: 14px; font-size: 12px; }
   .client-demo-preview.is-expanded { padding: 14px; }

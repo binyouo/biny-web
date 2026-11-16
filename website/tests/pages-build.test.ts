@@ -12,10 +12,10 @@ test("Pages artifacts serve sitemap routes, old entry links and unknown-route ha
   try {
     await mkdir(path.join(root, "dist"));
     await writeFile(path.join(root, "dist/index.html"), html);
-    await writeFile(path.join(root, "dist/sitemap.xml"), '<urlset><url><loc>https://biny.online/zh/</loc></url><url><loc>https://biny.online/zh/download</loc></url><url><loc>https://biny.online/zh/docs/memory</loc></url></urlset>');
+    await writeFile(path.join(root, "dist/sitemap.xml"), '<urlset><url><loc>https://biny.online/</loc></url><url><loc>https://biny.online/docs</loc></url><url><loc>https://biny.online/docs/memory</loc></url></urlset>');
     const result = spawnSync(process.execPath, [path.resolve("scripts/prepare-pages.mjs")], { cwd: root, encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
-    for (const route of ["zh", "zh/download", "zh/docs/memory", "download", "docs", "docs/memory"]) {
+    for (const route of ["docs", "docs/memory", "download", "zh", "zh/docs", "zh/docs/memory", "zh/download"]) {
       assert.equal(await readFile(path.join(root, "dist", route, "index.html"), "utf8"), html, route);
     }
     assert.equal(await readFile(path.join(root, "dist/404.html"), "utf8"), html);

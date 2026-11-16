@@ -12,7 +12,7 @@ pnpm install --frozen-lockfile --ignore-scripts
 pnpm dev
 ```
 
-开发地址默认为 `http://localhost:5173/zh`。验证和预览：
+开发地址默认为 `http://localhost:5173/`。验证和预览：
 
 ```bash
 pnpm test
@@ -27,14 +27,14 @@ pnpm preview
 
 | 路径 | 内容 |
 | --- | --- |
-| `/zh` | 招呼首屏、桌面端演示、四项能力、本地文件窗与下载 |
-| `/zh#download` | 首页内的桌面发布信息、npm 安装与源码启动 |
-| `/zh/download`、`/download` | 兼容旧地址，转到首页下载区，保留查询参数与锚点 |
-| `/zh/docs` | 中文文档概览 |
-| `/zh/docs/<slug>` | 安装、快速开始、会话、Provider、记忆、工具、扩展与任务指南 |
+| `/` | 招呼首屏与「Biny 的一天」时间轴（演示、能力、本地文件窗、下载） |
+| `/#download` | 首页内的桌面发布信息、npm 安装与源码启动 |
+| `/download` | 兼容旧地址，转到首页下载区，保留查询参数与锚点 |
+| `/docs` | 中文文档概览 |
+| `/docs/<slug>` | 安装、快速开始、会话、Provider、记忆、工具、扩展与任务指南 |
 | `/client-demo.html` | 可直接打开的预置交互演示 |
 
-`/` 转到 `/zh`；`/docs` 和 `/docs/<slug>` 转到对应中文文档路径，保留查询参数与锚点。未知文档展示明确的 404 内容。
+旧 `/zh/...` 地址重定向到去掉前缀的同路径，保留查询参数与锚点；`build:pages` 会为这些旧地址生成入口文件。未知路径展示明确的 404 内容。
 
 ```text
 src/
@@ -68,19 +68,22 @@ tests/                    文档搜索、路径、下载目录与演示播放与
 
 首页采用黑白深浅主题，白兔肖像使用 `src/assets/biny-portrait.png` 与 `biny-portrait-blink.png`，支持眨眼和减少动态效果偏好。导航、正文与代码分别使用站点无衬线字体和系统等宽字体。
 
-首页依次展示招呼、桌面端演示、四项能力、本地文件窗和下载。能力区只保留工具调用、联网搜索、Computer History 和隐私脱敏：
+首页首屏是招呼，下面是「Biny 的一天」时间轴：09:30 桌面端演示、11:00 工具调用、14:00 联网搜索、18:00 Computer History、03:00 本地文件窗。每条左侧是时间标签与一条纵向时间线，桌面端时间标签随滚动 sticky，窄屏收进正文上方，时间线在 03:00 处结束。背景按阶段从白天过渡到傍晚暖色、深夜黑（`theme-night` 强制使用深色令牌，不受站点主题影响），再经暖色日出回到清晨。时间轴之后是同内容列对齐的两个独立分区：隐私脱敏分步演示和下载。
 
-- 前三项使用 `public/features/` 中用户指定的截图，按原始宽高比展示，支持点击放大；取材说明见该目录的 `README.md`。
-- 隐私脱敏在固定高度的 `privacy-demo.html` 中复用 Desktop 面板，使用虚构请求演示筛选、流向图和请求对照。详情与筛选仅在内部滚动，样式与主页隔离；来源与适配边界见 `src/demo/privacy/README.md`。
-- `client-demo.html` 保留桌面端预置交互演示；程序化聚焦使用 `preventScroll`，防止加载或切换会话时拉动主页。
+- 桌面端演示复用 `client-demo.html`；程序化聚焦使用 `preventScroll`，防止加载或切换会话时拉动主页。
+- 工具调用、联网搜索、Computer History 使用 `public/features/` 中用户指定的截图，按原始宽高比展示，支持点击放大；取材说明见该目录的 `README.md`。
+- 隐私脱敏由内联的 `PrivacyStory`（`src/components/PrivacyStory.tsx` + `src/components/privacy-story.css`，数据在 `src/demo/privacyStory.ts`）演示：一条 28 秒时间轴由单个时钟驱动，信件、信封和值在面板间真实移动；下方进度条可拖动定位，步骤 chip 跳到对应时刻。进入视口一半以上自动播放一次，停在最后一步，离开视口或页面隐藏时暂停，`prefers-reduced-motion` 下不自动播放；样式使用站点令牌，跟随明暗主题。演示值必须能被真实规则识别（邮箱不用 example 域名、密码带 `DB_PASSWORD=` 前缀），占位符形如 `{{KIND_` + 8 位 a–z/2–7 + `}}`；哈希值是示意，不对应真实密钥。
+- 03:00 条目配了一只睡着的白兔（`BinyPortrait sleepy`），深夜阶段浅色主题下也保持深色。
 
-`src/components/FileShelf.tsx` 用左树右预览展示本地目录，预览内容标注为示例。导航使用 sticky 定位，窄屏显示折叠菜单。
+`src/components/FileShelf.tsx` 用左树右预览展示本地目录。导航桌面端只保留「能力」「文档」与下载 CTA，使用 sticky 定位，窄屏显示折叠菜单。文档页没有面包屑，搜索框在桌面端位于左侧栏顶部、窄屏位于页面顶部。
 
 ### 交互演示
 
-首页在 iframe 中加载 `client-demo.html`。入口安装内存中的 `window.biny` 数据适配器，然后挂载 `vendor/biny/src/desktop/renderer/src/App.tsx`，使用真实 App、Sidebar、Composer、消息时间线、菜单、权限卡和完整样式入口。官网样式不会进入 iframe。
+首页在 iframe 中加载 `client-demo.html`；iframe 进入视口才挂载，挂载前展示 `public/demo/` 下的海报帧。入口安装内存中的 `window.biny` 数据适配器，然后挂载 `vendor/biny/src/desktop/renderer/src/App.tsx`，使用真实 App、Sidebar、Composer、消息时间线、菜单、权限卡和完整样式入口。官网样式不会进入 iframe。
 
-演示采用深色主题、系统字体 15px、250px 侧栏、372px 文件面板，以及 1353×828 的窗口画布。嵌入区域整体等比缩放；“放大查看”扩大展示区域，不改写桌面端的内部布局。macOS 原生窗口控制点由少量网页样式补齐，仅作外观展示。
+演示采用深色主题、系统字体 15px、250px 侧栏、372px 文件面板，以及 1353×828 的窗口画布。嵌入区域整体等比缩放；“放大查看”扩大展示区域，不改写桌面端的内部布局。≤640px 时改用 `?layout=compact` 的 520×760 窄画布，播放时收起侧栏；不提供放大按钮。macOS 原生窗口控制点由少量网页样式补齐，仅作外观展示。
+
+`public/demo/client-poster{,-compact}.webp` 是 `client-demo.html`（及 `?layout=compact`）空闲帧的截图，用于 iframe 加载期间占位；演示场景或 vendor 渲染器更新后需要重新截取。社交分享图 `public/og.png` 由模板渲染：`npx playwright screenshot --viewport-size=1200,630 http://localhost:5288/scripts/og.html public/og.png`。
 
 `desktopDemo.ts` 将预置场景转为 Desktop 文档和运行事件，复用运行状态归约与权限确认规则。访客可以切换会话、重播、快进、停止、展开工具结果、使用原始模型和权限菜单。快进停在待批准的操作；高风险操作要求完整 `yes`；拒绝后停止后续脚本。重播会取消旧回合并等到新会话选中后才继续发送事件。
 
@@ -113,6 +116,4 @@ tests/                    文档搜索、路径、下载目录与演示播放与
 人工检查首页演示、导航、主题、文档搜索、目录锚点与上下篇；在窄屏检查移动菜单和文档目录；在下载页检查失败重试和代码复制反馈。演示需检查会话切换、工具展开、停止、快进停在权限请求、允许/拒绝、重播、输入框菜单和错误反馈；检查放大/收起、键盘焦点、整体缩放，以及向上阅读时的滚动。测试、类型检查与构建通过不表示界面已验收。
 
 
-下载页按 macOS、Windows、Linux 分组。macOS 直接使用 GitHub 最新 Release 的安装包链接，不展示固定版本号；GitHub API 不可用时使用已发布 macOS 安装包的直链兜底。Windows 与 Linux 暂未发布，固定显示「待发布」。
-
-Linux 平台图标来自 [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/linux.svg)，采用 CC0-1.0 许可。
+下载区只展示 macOS 卡片，直接使用 GitHub 最新 Release 的安装包链接，不展示固定版本号；GitHub API 不可用时使用已发布 macOS 安装包的直链兜底。Windows 与 Linux 暂未发布，卡片下方用一行文字说明还在准备中。

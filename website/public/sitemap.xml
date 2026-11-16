@@ -1,55 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://biny.online/zh/</loc>
+    <loc>https://biny.online/</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/download</loc>
+    <loc>https://biny.online/docs</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs</loc>
+    <loc>https://biny.online/docs/introduction</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/introduction</loc>
+    <loc>https://biny.online/docs/installation</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/installation</loc>
+    <loc>https://biny.online/docs/quick-start</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/quick-start</loc>
+    <loc>https://biny.online/docs/sessions</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/sessions</loc>
+    <loc>https://biny.online/docs/providers</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/providers</loc>
+    <loc>https://biny.online/docs/memory</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/memory</loc>
+    <loc>https://biny.online/docs/rich-content</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/rich-content</loc>
+    <loc>https://biny.online/docs/tools</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/tools</loc>
+    <loc>https://biny.online/docs/extensions</loc>
     <changefreq>monthly</changefreq>
   </url>
   <url>
-    <loc>https://biny.online/zh/docs/extensions</loc>
-    <changefreq>monthly</changefreq>
-  </url>
-  <url>
-    <loc>https://biny.online/zh/docs/tasks</loc>
+    <loc>https://biny.online/docs/tasks</loc>
     <changefreq>monthly</changefreq>
   </url>
 </urlset>
